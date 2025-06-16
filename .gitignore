@@ -1,0 +1,29 @@
+# 보안: 민감 파일
+.config.env
+
+# 작업 결과
+data/
+logs/
+
+#  무시할 확장자
+*.csv
+*.json
+*.log
+
+# 무시 예외 (원하는 파일만 추적)
+!seoul_hotspots_test.csv
+!final_result/**
+!thread_0_total.csv
+!score_mapping_54321.json
+!category_grouping_deduplicated.json
+
+#  파이썬 캐시
+__pycache__/
+*.pyc
+
+# 주피터 노트북 체크포인트
+*.ipynb_checkpoints
+
+#  macOS
+.DS_Store
+
