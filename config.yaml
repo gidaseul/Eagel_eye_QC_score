@@ -33,3 +33,5 @@ input_csv_name: 'input_data.csv'
 # 'csv', 'json', 'both' 중 하나를 선택할 수 있습니다.
 # 'both'로 설정 시 CSV와 JSON 파일 두 가지 형태로 모두 저장됩니다.
 output_format: 'json'
+
+# 6
