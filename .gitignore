@@ -10,12 +10,6 @@ logs/
 *.json
 *.log
 
-# 무시 예외 (원하는 파일만 추적)
-!seoul_hotspots_test.csv
-!final_result/**
-!thread_0_total.csv
-!score_mapping_54321.json
-!category_grouping_deduplicated.json
 
 #  파이썬 캐시
 __pycache__/

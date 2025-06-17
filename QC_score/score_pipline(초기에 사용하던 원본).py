@@ -1,3 +1,5 @@
+# 이전 파일(초기에 사용하려고 했던 파일)
+
 import json
 import os
 import google.generativeai as genai

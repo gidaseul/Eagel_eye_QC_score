@@ -246,7 +246,6 @@ class StoreCrawler:
             "phone": None,
             "gps_latitude": None,  
             "gps_longitude": None,
-            "Major category" : None,
             "naver_url": None,
             "menu_list": [],  
         }
