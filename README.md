@@ -1,2 +1,4 @@
-# Eagel_eye_final
-최종 수정본입니다.
+/Src
+  - api_server.py (서버 실행)
+  - ui_app.py (UI 실행)
+
