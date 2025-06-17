@@ -26,10 +26,10 @@ def load_config(config_path: str) -> dict:
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
-        print(f"경고: 설정 파일 '{config_path}'를 찾을 수 없습니다. 코드의 기본값으로 실행합니다.")
+        print(f"❌ 경고: 설정 파일 '{config_path}'를 찾을 수 없습니다. 코드의 기본값으로 실행합니다.")
         return {}
     except Exception as e:
-        print(f"오류: 설정 파일 로딩 실패: {e}")
+        print(f"❌ 오류: 설정 파일 로딩 실패: {e}")
         return {}
 
 def setup_api_key():
@@ -49,7 +49,7 @@ def setup_api_key():
         print("✅ Google Gemini API 키가 성공적으로 검증되었습니다.")
         return True
     except Exception as e:
-        print(f"오류: Gemini API 키가 유효하지 않습니다. 상세 오류: {e}", file=sys.stderr)
+        print(f"❌ 오류: Gemini API 키가 유효하지 않습니다. 상세 오류: {e}", file=sys.stderr)
         return False
 
 def ensure_list_or_dict(x):
@@ -82,7 +82,7 @@ def save_data(df: pd.DataFrame, filename_base: str, mode: str):
         if mode in ["json", "both"]:
             df.to_json(f"{filename_base}.json", orient='records', force_ascii=False, indent=4)
     except Exception as e:
-        print(f"오류: 파일 저장 중 오류 발생 - {filename_base}. 에러: {e}", file=sys.stderr)
+        print(f"❌ 오류: 파일 저장 중 오류 발생 - {filename_base}. 에러: {e}", file=sys.stderr)
 
 def main():
     """
@@ -175,7 +175,7 @@ def main():
 
 
     except Exception as e:
-        print(f"\n💥 파이프라인 실행 중 오류가 발생했습니다: {e}", file=sys.stderr)
+        print(f"\n❌ 파이프라인 실행 중 오류가 발생했습니다: {e}", file=sys.stderr)
         # 상세 오류 출력을 위해 traceback import
         import traceback
         traceback.print_exc()

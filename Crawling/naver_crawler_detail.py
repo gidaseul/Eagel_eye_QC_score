@@ -203,7 +203,7 @@ class StoreCrawler:
                 return "unknown"
 
         except Exception as e:
-            self.logger.warning(f"검색어 입력 중 오류 발생: {e}")
+            self.logger.warning(f"❌ 검색어 입력 중 오류 발생: {e}")
             return "error"
         
     # Iframe 내부에 있을 때, 가장 상위의 frame으로 이동
@@ -293,10 +293,10 @@ class StoreCrawler:
             elif result == "search":
                 return self.handle_candidate_list_address_based()
             else:
-                self.logger.warning(f"⚠️ 알 수 없는 프레임 상태: {result}")
+                self.logger.warning(f"❌ 알 수 없는 프레임 상태: {result}")
                 return False
         except Exception as e:
-            self.logger.error(f"매장 진입 중 오류 발생: {e}")
+            self.logger.error(f"❌ 매장 진입 중 오류 발생: {e}")
             return False
 
 
@@ -341,7 +341,7 @@ class StoreCrawler:
                         y = float(coordinate["y"])
                         self.store_dict["gps_latitude"] = y
                         self.store_dict["gps_longitude"] = x
-                        self.logger.info(f"📍 좌표 추출 완료 - 위도: {y}, 경도: {x}")
+                        self.logger.info(f"좌표 추출 완료 - 위도: {y}, 경도: {x}")
                     else:
                         self.logger.warning("❌ Apollo JSON에 좌표 데이터 없음")
                 else:
@@ -400,7 +400,7 @@ class StoreCrawler:
                         EC.presence_of_element_located((By.ID, "_pcmap_list_scroll_container"))
                     )
                 except TimeoutException:
-                    self.logger.warning("리스트 컨테이너 로딩 실패, 마지막 요소 스크롤로 대체")
+                    self.logger.warning("❌ 리스트 컨테이너 로딩 실패, 마지막 요소 스크롤로 대체")
                     list_container = None
 
                 # — (2) 컨테이너 스크롤 안정화
@@ -514,7 +514,7 @@ class StoreCrawler:
                 )
                 enter_search_frame()
             except Exception as e:
-                self.logger.warning(f"페이지 {best_page} 복귀 실패: {e}")
+                self.logger.warning(f"❌ 페이지 {best_page} 복귀 실패: {e}")
 
             # ─ 4) 복귀 후 스크롤 안정화 (ID 방식)
             prev_count = -1
@@ -609,7 +609,7 @@ class StoreCrawler:
             return True
 
         except Exception as e:
-            self.logger.warning(f"후보 판단 중 오류: {e}")
+            self.logger.warning(f"❌ 후보 판단 중 오류: {e}")
             return False
 
     # 탭 이동 후 직접 time sleep을 사용해 대시한다
@@ -633,7 +633,7 @@ class StoreCrawler:
                 raise ValueError("GPS 좌표가 None입니다.")
             store_point = Point(float(self.store_dict["gps_longitude"]), float(self.store_dict["gps_latitude"]))
         except Exception as e:
-            self.logger.warning("GPS 정보가 없어 경도,위도 확인 불가")
+            self.logger.warning("❌ GPS 정보가 없어 경도,위도 확인 불가")
             self.logger.warning(f"Error: {e}")        
         
 
@@ -659,11 +659,11 @@ class StoreCrawler:
                 self.store_dict['new_store'] = False
         
         except TimeoutException as e:
-            self.logger.warning("매장 이름, 카테고리, 새로오픈 여부 확인 중 TimeoutException 발생")
+            self.logger.warning("❌ 매장 이름, 카테고리, 새로오픈 여부 확인 중 TimeoutException 발생")
             self.logger.warning(e)
             return False
         except Exception as e:
-            self.logger.warning("매장 이름, 카테고리, 새로오픈 여부 확인 중 에러 발생")
+            self.logger.warning("❌ 매장 이름, 카테고리, 새로오픈 여부 확인 중 에러 발생")
             self.logger.warning(e)
             return False
 
@@ -695,7 +695,7 @@ class StoreCrawler:
             self.store_dict['instagram_post'] = None
             self.store_dict['instagram_follower'] = None
         except Exception as e:
-            self.logger.warning("인스타그램 크롤링 실패")
+            self.logger.warning("❌ 인스타그램 크롤링 실패")
             self.logger.warning(e)
             self.store_dict['instagram_link'] = None
             self.store_dict['instagram_post'] = None
@@ -730,7 +730,7 @@ class StoreCrawler:
         except NoSuchElementException as e:
             self.store_dict["address"] = None
         except Exception as e:
-            self.logger.warning("도로명 주소 크롤링 실패")
+            self.logger.warning("❌ 도로명 주소 크롤링 실패")
             self.logger.warning(e)
             self.store_dict["address"] = None
 
@@ -745,7 +745,7 @@ class StoreCrawler:
         except NoSuchElementException:
             self.store_dict["phone"] = None
         except Exception as e:
-            self.logger.warning("매장 전화번호 크롤링 실패")
+            self.logger.warning("❌ 매장 전화번호 크롤링 실패")
             self.logger.warning(e)
             self.store_dict["phone"] = None
 
@@ -785,7 +785,7 @@ class StoreCrawler:
             self.store_dict["distance_from_subway_origin"] = None
 
         except Exception as e:
-            self.logger.warning("지하철역으로부터 매장까지 거리 크롤링 실패")
+            self.logger.warning("❌ 지하철역으로부터 매장까지 거리 크롤링 실패")
             self.logger.warning(e)
             self.store_dict["distance_from_subway"] = None
             self.store_dict["distance_from_subway_origin"] = None
@@ -798,7 +798,7 @@ class StoreCrawler:
         except NoSuchElementException:
             self.store_dict['on_tv'] = False
         except Exception as e:
-            self.logger.warning("방송 출연 여부 크롤링 실패")
+            self.logger.warning("❌ 방송 출연 여부 크롤링 실패")
             self.logger.warning(e)
             self.store_dict['on_tv'] = False
 
@@ -816,7 +816,7 @@ class StoreCrawler:
         except NoSuchElementException:
             self.store_dict["parking_available"] = False
         except Exception as e:
-            self.logger.warning("주차, 여부 크롤링 실패")
+            self.logger.warning("❌ 주차, 여부 크롤링 실패")
             self.logger.warning(e)
             self.logger.info(f"주차, 반려동물, 에러: {e}")
             self.store_dict["parking_available"] = False
@@ -884,7 +884,7 @@ class StoreCrawler:
                 self.store_dict["theme_purpose"] = theme_by_category["찾는목적"]
 
             except Exception as e:
-                self.logger.warning("테마키워드 수집 실패")
+                self.logger.warning("❌ 테마키워드 수집 실패")
                 self.store_dict["theme_mood"] = []
                 self.store_dict["theme_topic"] = []
                 self.store_dict["theme_purpose"] = []
@@ -893,7 +893,7 @@ class StoreCrawler:
             # '더보기' 버튼 클릭
             for attempt in range(5):  # 최대 2회 시도
                 try:
-                    self.logger.info(f"🔁 더보기 버튼 클릭 시도 {attempt + 1}회차")
+                    self.logger.info(f"더보기 버튼 클릭 시도 {attempt + 1}회차")
                     button_elem = WebDriverWait(datalab_section, 10).until(
                         EC.element_to_be_clickable((By.XPATH, ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"))
                     )
@@ -919,7 +919,7 @@ class StoreCrawler:
                     self.logger.warning(e)
                     time.sleep(2)  # 실패 시 약간 대기 후 재시도
                 except Exception as e:
-                    self.logger.warning("⚠️ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
+                    self.logger.warning("❌ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
                     self.logger.warning(e)
                     break  # 예상 못한 에러면 반복 안 하고 탈출
 
@@ -927,7 +927,7 @@ class StoreCrawler:
                 # 🔹 **연령별 데이터를 포함하는 div.gZ4G4 요소 찾기**
                 gender_age_container_xpath = "//div[contains(@class, 'gZ4G4')]"
                 if len(self.driver.find_elements(By.XPATH, gender_age_container_xpath)) == 0:
-                    self.logger.warning("⚠️ 연령별 비율 정보가 없음, 기본값 None 설정")
+                    self.logger.warning("연령별 비율 정보가 없음, 기본값 None 설정")
                     self.store_dict["age-2030"] = None
 
                 else:
@@ -982,7 +982,7 @@ class StoreCrawler:
                         final_score = 0
 
                     self.store_dict["age-2030"] = final_score
-                    self.logger.info(f"✔️ 연령별 점수 계산 완료: 20대={score_20}, 30대={score_30}, 최종={final_score}")
+                    self.logger.info(f"연령별 점수 계산 완료: 20대={score_20}, 30대={score_30}, 최종={final_score}")
 
             except Exception as e:
                 self.logger.warning("연령별 비율 계산 실패")
@@ -1016,7 +1016,7 @@ class StoreCrawler:
                     return null;
                 """)
 
-                self.logger.info(f"🔍 male_text: {male_text}, female_text: {female_text}")
+                self.logger.info(f"male_text: {male_text}, female_text: {female_text}")
 
 
                 # 🔹 텍스트 처리 및 결과 저장 (기존 코드 유지)
@@ -1088,7 +1088,7 @@ class StoreCrawler:
         except NoSuchElementException:
             self.store_dict['blog_review_count'] = 0
         except Exception as e:
-            self.logger.warning("블로그 리뷰 크롤링 실패")
+            self.logger.warning("❌ 블로그 리뷰 크롤링 실패")
             self.logger.warning(e)
 
         # 메뉴 탭으로 이동 및 메뉴 정보 크롤링
@@ -1125,7 +1125,7 @@ class StoreCrawler:
                         continue
 
             else:
-                self.logger.info("🗂️ 기본 메뉴 구조 사용")
+                self.logger.info("기본 메뉴 구조 사용")
                 menu_ul = self.driver.find_element(By.CSS_SELECTOR, "div.place_section_content > ul")
                 li_elements = menu_ul.find_elements(By.CSS_SELECTOR, "li.E2jtL")
                 self.logger.info(f"li_elements 개수: {len(li_elements)}")
@@ -1202,7 +1202,7 @@ class StoreCrawler:
                 self.driver.execute_script("arguments[0].click();", latest_sort_elem)
                 self.logger.info("최신순 정렬 버튼 클릭 완료")
             except Exception as e:
-                self.logger.warning(f"⚠️ 최신순 클릭 실패: {e}")
+                self.logger.warning(f"❌ 최신순 클릭 실패: {e}")
 
             # 리뷰 키워드 수집
             data = {}
@@ -1218,13 +1218,13 @@ class StoreCrawler:
                         score = int(score_text) if score_text.isdigit() else 0
                         data[category] = score
                     except Exception as e:
-                        self.logger.warning(f"❗ 키워드 파싱 실패: {e}")
+                        self.logger.warning(f"❌ 키워드 파싱 실패: {e}")
                         continue
             except Exception as e:
-                self.logger.warning("❗ 리뷰 키워드 수집 실패")
+                self.logger.warning("❌ 리뷰 키워드 수집 실패")
                 self.logger.warning(e)
             self.store_dict['review_category'] = data
-            self.logger.info(f"📌 리뷰 키워드: {data}")
+            self.logger.info(f"리뷰 키워드: {data}")
 
             # 방문자 리뷰 날짜/댓글 수집
             review_info = []
@@ -1246,13 +1246,13 @@ class StoreCrawler:
                     except Exception:
                         continue
             except Exception as e:
-                self.logger.warning("❗ 리뷰 댓글 수집 실패")
+                self.logger.warning("❌ 리뷰 댓글 수집 실패")
                 self.logger.warning(e)
 
             review_info = sorted(review_info, key=lambda x: x["date"], reverse=True)[:5]
             self.store_dict["review_info"] = review_info
             self.store_dict["crawling_date"] = datetime.now().strftime("%Y-%m-%d")
-            self.logger.info(f"📊 수집된 리뷰(날짜+댓글): {review_info}")
+            self.logger.info(f"수집된 리뷰(날짜+댓글): {review_info}")
 
             # 운영 상태 평가
             self.store_dict['running_well'] = 0
@@ -1265,9 +1265,9 @@ class StoreCrawler:
                     continue
 
             if not visit_review_dates:
-                self.logger.warning("🚨 리뷰 데이터 없음 → 운영 상태 평가: 0")
+                self.logger.warning("리뷰 데이터 없음 → 운영 상태 평가: 0")
             elif not any(is_within_three_months(d) for d in visit_review_dates):
-                self.logger.warning("🚨 최근 3개월 내 방문 없음 → 운영 상태 평가: 0")
+                self.logger.warning("최근 3개월 내 방문 없음 → 운영 상태 평가: 0")
             elif any(is_within_one_month(d) for d in visit_review_dates):
                 self.store_dict["running_well"] = 3 if any(is_within_two_weeks(d) for d in visit_review_dates) else 2
             else:
@@ -1312,7 +1312,7 @@ class StoreCrawler:
                 self.store_dict["instagram_follower"] = None
                 self.store_dict["instagram_post"] = None
             except Exception as e:
-                self.logger.warning("인스타그램 크롤링 실패")
+                self.logger.warning("❌ 인스타그램 크롤링 실패")
                 self.logger.warning(e)
                 self.store_dict['instagram_link'] = None
                 self.store_dict["instagram_follower"] = None
@@ -1364,7 +1364,7 @@ class StoreCrawler:
         try:
             new_data = pd.DataFrame([self.store_dict])
         except Exception as e:
-            self.logger.warning(f"store_dict를 DataFrame으로 변환하는 데 실패함: {e}")
+            self.logger.warning(f"❌ store_dict를 DataFrame으로 변환하는 데 실패함: {e}")
             return
 
         if new_data.empty or new_data.isna().all(axis=1).iloc[0]:
@@ -1456,10 +1456,10 @@ class StoreCrawler:
             )
 
         except TimeoutException:
-            self.logger.warning("searchIframe 요소 찾기 실패: TimeoutException 발생")
+            self.logger.warning("❌ searchIframe 요소 찾기 실패: TimeoutException 발생")
             raise
         except Exception as e:
-            self.logger.warning("move_to_search_iframe 내부 오류 발생", exc_info=True)
+            self.logger.warning("❌ move_to_search_iframe 내부 오류 발생", exc_info=True)
             raise
     
     
@@ -1556,7 +1556,7 @@ class StoreCrawler:
             self.logger.info("🧹 /tmp 내 Firefox 캐시 파일 정리")
             subprocess.run("rm -rf /tmp/rust_mozprofile* /tmp/Temp-*profile /tmp/geckodriver*", shell=True, check=True)
         except Exception:
-            self.logger.warning("⚠️ Firefox 캐시 정리 실패", exc_info=True)
+            self.logger.warning("❌ Firefox 캐시 정리 실패", exc_info=True)
 
     def go_to_main_page(self):
         """네이버 지도 메인으로 이동해서 검색 상태를 초기화"""

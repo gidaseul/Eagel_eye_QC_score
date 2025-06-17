@@ -53,7 +53,7 @@ class KakaoMapCrawler:
             service = Service() # 시스템 PATH에 설치된 geckodriver를 자동으로 사용
             return webdriver.Firefox(options=options, service=service)
         except Exception as e:
-            print(f"[Thread {self.thread_id}] WebDriver 초기화 실패: {e}", file=sys.stderr)
+            print(f"❌ [Thread {self.thread_id}] WebDriver 초기화 실패: {e}", file=sys.stderr)
             return None
 
     def crawl_store(self, store: dict) -> dict:
@@ -88,7 +88,7 @@ class KakaoMapCrawler:
             return result
             
         except Exception as e:
-            print(f"[Thread {self.thread_id}] 매장 '{store.get('name', 'N/A')}' 크롤링 중 오류: {e}", file=sys.stderr)
+            print(f"❌ [Thread {self.thread_id}] 매장 '{store.get('name', 'N/A')}' 크롤링 중 오류: {e}", file=sys.stderr)
             return {**store, **self._empty_fields(prefix=True)}
 
 
@@ -206,7 +206,7 @@ class KakaoMapCrawler:
                         data[k] = None
 
         except Exception as e:
-            print(f"[Thread {self.thread_id}] Detail scrape error: {e}")
+            print(f"❌ [Thread {self.thread_id}] Detail scrape error: {e}")
         return data
 
     def _save_intermediate(self):
@@ -261,7 +261,7 @@ def run_kakao_crawling(input_df: pd.DataFrame, max_threads: int, headless: bool)
                 results.append(result)
             except Exception as e:
                 original_store = futures[future]
-                print(f"매장 '{original_store.get('name', 'N/A')}' 처리 중 스레드 오류: {e}", file=sys.stderr)
+                print(f"❌ 매장 '{original_store.get('name', 'N/A')}' 처리 중 스레드 오류: {e}", file=sys.stderr)
                 results.append(original_store)
             
             # 터미널에 진행 상황 표시
