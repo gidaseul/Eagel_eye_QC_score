@@ -44,8 +44,15 @@ class StoreInput(BaseModel):
     name: str
     location: str
 
+class PipelineOptions(BaseModel):
+    num_threads: int = NUM_THREADS
+    headless_mode: bool = HEADLESS_MODE
+    save_interval: int = SAVE_INTERVAL
+
+
 class PipelineRequest(BaseModel):
     stores: List[StoreInput]
+    options: Optional[PipelineOptions] = None # 옵션은 필수가 아님
 
 class TaskResponse(BaseModel):
     task_id: str
@@ -57,7 +64,7 @@ class StatusResponse(BaseModel):
     result: Optional[List[Dict]] = None
 
 # --- 3. 백그라운드에서 실행될 실제 파이프라인 함수 ---
-def execute_pipeline_task(task_id: str, stores_to_process: List[Dict]):
+def execute_pipeline_task(task_id: str, stores_to_process: List[Dict], options: Dict):
     """
     오래 걸리는 전체 파이프라인 로직을 수행하는 함수입니다.
     이 함수는 BackgroundTasks에 의해 별도로 실행됩니다.
@@ -67,6 +74,14 @@ def execute_pipeline_task(task_id: str, stores_to_process: List[Dict]):
         tasks_db[task_id] = {"status": "processing: 1. naver crawling", "result": None}
         print(f"[{task_id}] 파이프라인 시작...")
 
+        # [수정] UI 옵션값과 config 기본값을 비교하여 최종 실행값 결정 ▼▼▼
+        num_threads_run = options.get('num_threads', NUM_THREADS)
+        headless_mode_run = options.get('headless_mode', HEADLESS_MODE)
+        save_interval_run = options.get('save_interval', SAVE_INTERVAL)
+
+        print(f"[{task_id}] 실행 옵션 - 스레드: {num_threads_run}, 헤드리스: {headless_mode_run}, 저장간격: {save_interval_run}")
+
+
         # run_naver_crawling 함수는 CSV 파일 경로를 인자로 받으므로,
         # API로 받은 가게 목록을 임시 CSV 파일로 저장합니다.
         temp_input_df = pd.DataFrame(stores_to_process)
@@ -75,14 +90,15 @@ def execute_pipeline_task(task_id: str, stores_to_process: List[Dict]):
 
         # 1단계: 네이버 크롤링
         # 이거 설정을 config.yaml에서 불러오도록 변경
+        # ▼▼▼ [수정] 결정된 실행값을 크롤링 함수에 전달 ▼▼▼
         naver_df = run_naver_crawling(
             csv_path=temp_csv_path, 
-            num_threads=NUM_THREADS, # config에서 읽은 값 사용
-            headless_mode=HEADLESS_MODE, # config에서 읽은 값 사용
-            save_interval=SAVE_INTERVAL, # config에서 읽은 값 사용
+            num_threads=num_threads_run,
+            headless_mode=headless_mode_run,
+            save_interval=save_interval_run,
             output_dir=OUTPUT_DIR
         )
-        os.remove(temp_csv_path) # 사용한 임시 파일은 삭제
+        os.remove(temp_csv_path)
 
         if naver_df.empty: raise ValueError("네이버 크롤링 결과가 없습니다.")
         
@@ -129,6 +145,20 @@ def on_startup():
     print("API 서버가 시작되었습니다.")
 # --- 5. API 엔드포인트(URL 주소) 구현 ---
 
+# 초기 config 값을 반환
+@app.get("/config")
+async def get_config():
+    """UI가 초기값을 설정할 수 있도록 서버의 기본 설정을 반환합니다."""
+    return {
+        "num_threads": NUM_THREADS,
+        "headless_mode": HEADLESS_MODE,
+        "save_interval": SAVE_INTERVAL,
+        "data_dir": DATA_DIR,
+        "output_dir": OUTPUT_DIR,
+        "pipeline_stage": PIPELINE_STAGE,
+    }
+
+
 @app.post("/run-pipeline", response_model=TaskResponse, status_code=202)
 async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: BackgroundTasks):
     """
@@ -140,8 +170,16 @@ async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: Ba
     task_id = str(uuid.uuid4()) # 고유한 작업 ID 생성
     tasks_db[task_id] = {"status": "pending", "result": None}
     
+    # ▼▼▼ [수정] 요청에서 옵션을 추출하고 백그라운드 함수에 전달 ▼▼▼
+    request_options = request.options.dict() if request.options else {}
+    
     # execute_pipeline_task 함수를 백그라운드에서 실행하도록 등록
-    background_tasks.add_task(execute_pipeline_task, task_id, request.dict()["stores"])
+    background_tasks.add_task(
+        execute_pipeline_task, 
+        task_id, 
+        request.dict()["stores"],
+        request_options # options 전달
+    )
     
     return {"task_id": task_id, "message": "파이프라인 작업이 접수되었습니다. 잠시 후 상태 확인 API를 통해 결과를 조회하세요."}
 

@@ -57,6 +57,19 @@ def prepare_df_for_display(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_display
 
+# <추가>
+@st.cache_data(ttl=600) # 10분 동안 캐시하여 불필요한 API 호출 방지
+def get_default_config():
+    """API 서버로부터 기본 설정값을 가져옵니다."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/config", timeout=5)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException:
+        # 서버 연결 실패 시 하드코딩된 기본값 반환
+        return {"num_threads": 1, "headless_mode": True}
+# 
+
 
 # --- UI 화면 구성 ---
 st.set_page_config(page_title="데이터 처리 파이프라인", layout="wide")
@@ -71,6 +84,11 @@ if 'result_df' not in st.session_state:
     st.session_state.result_df = None
 if 'error_info' not in st.session_state:
     st.session_state.error_info = None
+
+# <추가>
+# 서버에서 기본 설정값 가져오기
+default_config = get_default_config()
+
 
 # --- 입력 UI ---
 with st.sidebar:
@@ -108,6 +126,30 @@ with st.sidebar:
                     stores_to_process.append({"name": name, "location": location})
             st.success(f"{len(stores_to_process)}개의 가게 정보를 입력했습니다.")
 
+    st.markdown("---")
+    st.header("2. 파이프라인 설정")
+    num_threads_option = st.slider(
+        "A. 크롤링 스레드 개수", 
+        min_value=1, 
+        max_value=3, 
+        value=default_config.get('num_threads', 1), # 서버 기본값으로 초기화
+        help="동시에 처리할 크롤링 작업의 수입니다."
+    )
+    st.markdown("---")
+    headless_mode_option = st.toggle(
+        "B. 크롤링 브라우저 창 숨기기 (Headless)",
+        value=default_config.get('headless_mode', True), # 서버 기본값으로 초기화
+        help="이 옵션을 끄면 크롤링하는 브라우저 창이 실제로 화면에 나타납니다."
+    )
+    st.markdown("---")
+    save_interval_option = st.number_input(
+        "C. 중간 결과 저장 간격 (0이면 저장 안함)", 
+        min_value=0, 
+        max_value=100, 
+        value=0, 
+        help="스레드가 여러 개일 때 중간 결과를 얼마나 자주 저장할지 설정합니다."
+    )
+
 # --- 파이프라인 실행 버튼 ---
 if st.sidebar.button("파이프라인 실행", disabled=(not stores_to_process), type="primary", use_container_width=True):
     # 새로운 작업을 시작하므로, 이전 결과와 오류 정보를 모두 초기화합니다.
@@ -115,8 +157,14 @@ if st.sidebar.button("파이프라인 실행", disabled=(not stores_to_process),
     st.session_state.result_df = None
     st.session_state.error_info = None
 
-    payload = {"stores": stores_to_process}
-    try:
+    payload = {
+        "stores": stores_to_process,
+        "options": {
+            "num_threads": num_threads_option,
+            "headless_mode": headless_mode_option
+        }
+    }
+    try:    
         with st.spinner("API 서버에 작업을 요청하는 중..."):
             response = requests.post(f"{API_BASE_URL}/run-pipeline", json=payload, timeout=20)
             response.raise_for_status()
@@ -238,3 +286,4 @@ if st.session_state.result_df is not None:
 if st.session_state.error_info:
     st.error("❌ 파이프라인 작업 중 오류가 발생했습니다.")
     st.json(st.session_state.error_info)
+
