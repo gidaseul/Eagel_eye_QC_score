@@ -13,7 +13,7 @@ def get_thread_logger(location, keyword, thread_id=None, enable_logging=True):
 
 
     log_dir = os.path.join(os.getcwd(), "logs")
-    os.makedirs(log_dir, exist_ok=True)  # ✅ 이 줄 추가 (가장 안전)
+    os.makedirs(log_dir, exist_ok=True)  
 
     formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 

@@ -27,11 +27,10 @@ save_interval: 0
 # 이 경로들은 docker run 명령어의 볼륨 매핑을 통해 실제 로컬 경로와 연결됩니다.
 data_dir: 'data'
 output_dir: 'results'
-input_csv_name: 'input_data.csv'
+input_csv_name: 'data/input_data.csv'
 
 # 5. 최종 결과 저장 형식 설정
 # 'csv', 'json', 'both' 중 하나를 선택할 수 있습니다.
 # 'both'로 설정 시 CSV와 JSON 파일 두 가지 형태로 모두 저장됩니다.
 output_format: 'json'
 
-# 6

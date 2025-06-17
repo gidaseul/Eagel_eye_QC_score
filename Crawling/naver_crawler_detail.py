@@ -61,12 +61,12 @@ class StoreCrawler:
         self.origin_name = name
         self.location = location
         self.search_word = name
-        self.save_threshold = save_threshold  # ✅ 추가
-        self.headless = headless  # ✅ 추가
+        self.save_threshold = save_threshold 
+        self.headless = headless  
         self.thread_id = thread_id
 
     
-        # ✅ logger 먼저 정의
+        #logger 먼저 정의
         self.logger = logging.getLogger(f"StoreCrawler_{name}")
         self.logger.setLevel(logging.INFO)
 
@@ -79,7 +79,7 @@ class StoreCrawler:
         # 나머지 초기화
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.output_base_dir = output_base_dir if output_base_dir else os.path.join(current_dir, 'result')
-        os.makedirs(self.output_base_dir, exist_ok=True)  # ✅ 디렉토리 생성 보장
+        os.makedirs(self.output_base_dir, exist_ok=True)  #디렉토리 생성 보장
         self.data = pd.DataFrame(columns=StoreCrawler.columns)
         self.user_agent_index = random.randint(0, len(USER_AGENTS) - 1)
                 
@@ -119,9 +119,9 @@ class StoreCrawler:
             
             if self.headless:
                 options.add_argument("--headless")
-                self.logger.info("✅ 헤드리스 모드로 실행")
+                self.logger.info("헤드리스 모드로 실행")
             else:
-                self.logger.info("✅ 브라우저 창 표시 모드로 실행")
+                self.logger.info("브라우저 창 표시 모드로 실행")
             
             options.add_argument("lang=ko_KR")
             # /dev/shm 파티션 사용 비활성화, Docker 같은 컨테이너 환경 에서 메모리 이슈 해결을 위함
@@ -171,18 +171,18 @@ class StoreCrawler:
             search_box.send_keys(Keys.RETURN)
             time.sleep(4.5)  # 검색 결과 로딩 대기
 
-            self.logger.info("🔍 iframe 리스트에서 현재 상태 판단 시작")
+            self.logger.info("iframe 리스트에서 현재 상태 판단 시작")
 
             # 🔸 현재 페이지의 iframe들 확인
             iframe_elements = self.driver.find_elements(By.TAG_NAME, "iframe")
             iframe_ids = [iframe.get_attribute("id") for iframe in iframe_elements]
 
             if "entryIframe" in iframe_ids:
-                self.logger.info("✅ entryIframe 감지됨 (단일 매장)")
+                self.logger.info("entryIframe 감지됨 (단일 매장)")
                 return "entry"
 
             elif "searchIframe" in iframe_ids:
-                self.logger.info("🔍 searchIframe 감지됨 (여러 후보 or 없음)")
+                self.logger.info("searchIframe 감지됨 (여러 후보 or 없음)")
                 self.driver.switch_to.frame("searchIframe")
                 time.sleep(1)
 
@@ -217,7 +217,7 @@ class StoreCrawler:
     # 한 매장에 대한 크롤링을 마치고, 그 다음 매장을 크롤링 하기 위해 실행
     def init_dictionary(self):
         self.store_dict = {
-            "origin_name": self.origin_name,  # ✅ 여기에 추가
+            "origin_name": self.origin_name, 
             "location": self.location, 
             "naver_id": None,
             "name": None,
@@ -229,9 +229,9 @@ class StoreCrawler:
             "visitor_review_count": None,
             "blog_review_count": None,
             "review_category" : None,
-            "theme_mood": None,          # ✅ 추가
-            "theme_topic": None,         # ✅ 추가
-            "theme_purpose": None,       # ✅ 추가
+            "theme_mood": None,          
+            "theme_topic": None,         
+            "theme_purpose": None,       
             "distance_from_subway": None,
             "distance_from_subway_origin":None, # 실제 어디 정거장에서 가져오는 건지 확인하기 위해서 
             "on_tv": None,
@@ -248,7 +248,7 @@ class StoreCrawler:
             "gps_longitude": None,
             "Major category" : None,
             "naver_url": None,
-            "menu_list": [],  # ✅ menu_list 추가
+            "menu_list": [],  
         }
 
 
@@ -281,7 +281,7 @@ class StoreCrawler:
         """매장 진입 및 정보 수집"""
         try:
             self.init_dictionary()
-            result = self.search_keyword()  # ✅ 여기서 반드시 검색 수행해야 함
+            result = self.search_keyword()  
             if result == "none":
                 self.logger.warning(f"❌ 검색 결과 없음: {self.search_word}")
                 return False
@@ -367,7 +367,7 @@ class StoreCrawler:
                 self.driver.switch_to.default_content()
                 return False
             else:
-                self.logger.info(f"✅ 최종 후보 매장 선택 완료: {self.store_dict['name']}")
+                self.logger.info(f"최종 후보 매장 선택 완료: {self.store_dict['name']}")
 
             return True
         except Exception as e:
@@ -492,7 +492,7 @@ class StoreCrawler:
                 self.logger.warning("조건에 맞는 후보가 전혀 없음")
                 return False
             self.logger.info(
-                f"✅ 최종 선택: {best_name}/{best_addr} "
+                f"최종 선택: {best_name}/{best_addr} "
                 f"(점수={best_score:.2f}), 페이지={best_page}, 인덱스={best_idx}"
             )
 
@@ -910,9 +910,9 @@ class StoreCrawler:
                     WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.XPATH, "//div[@class='WXrhH']"))
                     )
-                    self.logger.info("✅ 테마 키워드 확장 완료!")
+                    self.logger.info("테마 키워드 확장 완료!")
 
-                    break  # ✅ 성공했으니 재시도 루프 탈출!
+                    break  #성공했으니 재시도 루프 탈출!
 
                 except (TimeoutException, NoSuchElementException) as e:
                     self.logger.warning(f"❌ 더보기 버튼 클릭 실패 (시도 {attempt + 1})")
@@ -1030,8 +1030,8 @@ class StoreCrawler:
                 self.store_dict["gender_male"] = male
                 self.store_dict["gender_female"] = female
                 self.store_dict["gender-balance"] = (male < 55)
-                self.logger.info(f"📊 최종 성별 비율 - 남성: {male}%, 여성: {female}%")
-                self.logger.info(f"✅ gender-balance: {'균형 잡힘 (True)' if male < 55 else '균형 안 잡힘 (False)'}")
+                self.logger.info(f"최종 성별 비율 - 남성: {male}%, 여성: {female}%")
+                self.logger.info(f"gender-balance: {'균형 잡힘 (True)' if male < 55 else '균형 안 잡힘 (False)'}")
 
               
             except TimeoutException:
@@ -1096,7 +1096,7 @@ class StoreCrawler:
             self.move_to_tab("메뉴")
             time.sleep(2)
 
-            # ✅ [신규 스마트주문 구조] 존재 여부 확인
+            # 신규 스마트주문 구조] 존재 여부 확인
             if self.driver.find_elements(By.CSS_SELECTOR, "div.order_list_wrap.order_list_category.store_delivery"):
                 self.logger.info("📦 스마트주문 메뉴 구조 감지")
                 detail_blocks = self.driver.find_elements(By.CSS_SELECTOR, "div.info_detail")
@@ -1183,7 +1183,7 @@ class StoreCrawler:
 
             tab_xpath = """//a[@role='tab']//span[text()='리뷰']"""
             self.wait_short.until(EC.presence_of_element_located((By.XPATH, tab_xpath)))
-            self.logger.info("✅ 리뷰 탭 존재 확인됨")
+            self.logger.info("리뷰 탭 존재 확인됨")
 
             # 리뷰 탭 클릭
             self.move_to_tab('리뷰')
@@ -1192,7 +1192,7 @@ class StoreCrawler:
             self.wait_medium.until(
                 EC.presence_of_element_located((By.XPATH, '//li[contains(@class, "place_apply_pui")]'))
             )
-            self.logger.info("✅ 리뷰 탭 콘텐츠 렌더링 완료됨")
+            self.logger.info("리뷰 탭 콘텐츠 렌더링 완료됨")
 
             # 최신순 정렬 시도
             try:
@@ -1200,7 +1200,7 @@ class StoreCrawler:
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "div.mlywZ > span.v6aH1:nth-child(2) > a"))
                 )
                 self.driver.execute_script("arguments[0].click();", latest_sort_elem)
-                self.logger.info("✅ 최신순 정렬 버튼 클릭 완료")
+                self.logger.info("최신순 정렬 버튼 클릭 완료")
             except Exception as e:
                 self.logger.warning(f"⚠️ 최신순 클릭 실패: {e}")
 
@@ -1342,7 +1342,7 @@ class StoreCrawler:
                 self.wait_short = WebDriverWait(self.driver, 2)
                 self.wait_medium = WebDriverWait(self.driver, 5)
                 self.wait = WebDriverWait(self.driver, 10)
-                self.logger.info("✅ WebDriver 재초기화 완료")
+                self.logger.info("WebDriver 재초기화 완료")
             else:
                 self.wait_short = self.wait_medium = self.wait = None
                 self.logger.error("❌ WebDriver 재초기화 실패")

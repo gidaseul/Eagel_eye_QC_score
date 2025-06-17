@@ -183,7 +183,7 @@ def run_naver_crawling(
                 thread_df = future.result()
                 if not thread_df.empty:
                     results_dfs.append(thread_df)
-                    print(f"✅ [Thread {thread_id}] 작업 완료, {len(thread_df)}개 결과 반환.")
+                    print(f"[Thread {thread_id}] 작업 완료, {len(thread_df)}개 결과 반환.")
             except Exception as e:
                 print(f"❌ [Thread {thread_id}] 실행 중 오류 발생: {e}", file=sys.stderr)
 
@@ -238,6 +238,6 @@ if __name__ == "__main__":
     if not final_dataframe.empty:
         final_path = os.path.join(output_directory, f"store_crawling_{run_date}_FINAL")
         save_data(final_dataframe, final_path, "both")
-        print(f"\n✅ 최종 결과가 저장되었습니다: {final_path}.csv/.json")
+        print(f"\n최종 결과가 저장되었습니다: {final_path}.csv/.json")
     else:
         print("\n최종 결과가 비어있어 파일을 저장하지 않았습니다.")
