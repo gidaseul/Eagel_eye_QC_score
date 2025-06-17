@@ -1,5 +1,3 @@
-# src/ui_app.py
-
 import streamlit as st
 import pandas as pd
 import requests
@@ -17,29 +15,48 @@ def parse_string_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     데이터프레임의 특정 컬럼들이 문자열일 경우,
     안전하게 파이썬 리스트/딕셔너리로 변환합니다.
+    (이 함수는 API 응답을 받은 직후 원본 데이터프레임에 적용하여 내부적으로 객체화합니다.)
     """
     cols_to_parse = ['menu_list', 'review_info', 'review_category', 'theme_mood', 'theme_topic', 'theme_purpose']
     
     for col in cols_to_parse:
         if col in df.columns:
-            # ▼▼▼ [오류 수정] 모호성 오류를 해결하는 더 안전한 변환 함수 ▼▼▼
             def safe_literal_eval(cell_value):
-                # 1. 값이 문자열인 경우에만 변환을 시도합니다.
                 if isinstance(cell_value, str):
                     try:
-                        # '[]', '{}' 형태의 문자열을 실제 파이썬 객체로 변환
                         return ast.literal_eval(cell_value)
                     except (ValueError, SyntaxError):
-                        # 변환에 실패하면 (예: 일반 텍스트), 오류 없이 원본 문자열을 그대로 반환
                         return cell_value
-                
-                # 2. 문자열이 아니면 (이미 리스트, dict, 숫자, NaN 등) 그대로 반환합니다.
                 return cell_value
             
-            # .apply()에 새로 만든 안전한 함수를 적용
             df[col] = df[col].apply(safe_literal_eval)
             
     return df
+
+def prepare_df_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    데이터프레임의 특정 컬럼들을 Streamlit의 st.dataframe이나 CSV 다운로드 시
+    'object' 타입 대신 가독성 좋은 문자열 형태로 변환합니다.
+    """
+    df_display = df.copy() # 원본 DataFrame을 수정하지 않도록 복사본 사용
+    
+    # JSON 문자열 또는 리스트/딕셔너리 형태의 컬럼을 가독성 좋은 문자열로 변환
+    cols_to_convert_to_str = ['menu_list', 'review_info', 'review_category', 'theme_mood', 'theme_topic', 'theme_purpose']
+    
+    for col in cols_to_convert_to_str:
+        if col in df_display.columns:
+            df_display[col] = df_display[col].apply(lambda x: 
+                json.dumps(x, ensure_ascii=False) if isinstance(x, (list, dict)) else 
+                (str(x) if x is not None else "") # NaN, None 등은 빈 문자열로
+            )
+    
+    # 숫자형 '메뉴_점수'와 '위치_점수', 'Total_점수'는 소수점 한 자리로 표시
+    for score_col in ['메뉴_점수', '위치_점수', 'Total_점수']:
+        if score_col in df_display.columns:
+            df_display[score_col] = df_display[score_col].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "")
+
+    return df_display
+
 
 # --- UI 화면 구성 ---
 st.set_page_config(page_title="데이터 처리 파이프라인", layout="wide")
@@ -137,6 +154,8 @@ if st.session_state.task_id and st.session_state.result_df is None:
 
                 if status == "completed":
                     st.session_state.result_df = pd.DataFrame(status_data.get("result", []))
+                    # API 응답을 받은 직후 문자열 컬럼들을 파이썬 객체로 변환
+                    st.session_state.result_df = parse_string_columns(st.session_state.result_df)
                     st.session_state.task_id = None # 작업이 끝났으므로 ID 초기화
                     st.rerun()
                     break
@@ -156,38 +175,64 @@ if st.session_state.task_id and st.session_state.result_df is None:
 # 2. 작업이 성공적으로 완료되어 결과가 있는 경우
 if st.session_state.result_df is not None:
     st.success("✅ 파이프라인 작업이 성공적으로 완료되었습니다!")
-    result_df = st.session_state.result_df
+    raw_result_df = st.session_state.result_df # 원본 객체화된 DataFrame
     
-    # 데이터프레임 타입 변환 (필요한 경우)
-    result_df = parse_string_columns(result_df)
-    
+    # display/download를 위해 문자열로 변환된 DataFrame 준비
+    display_df = prepare_df_for_display(raw_result_df)
+
     st.markdown("---")
-    st.subheader("결과 탐색기")
-    store_names = result_df['name'].tolist()
-    selected_name = st.selectbox('결과를 확인할 가게를 선택하세요:', options=store_names, index=0)
+    st.subheader("전체 데이터 미리보기")
+    # CSV/Excel처럼 'object' 컬럼 내용을 확인할 수 있도록 변환된 DataFrame을 표시
+    st.dataframe(display_df, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("개별 가게 결과 탐색기")
+    store_names = raw_result_df['name'].tolist() # 원본 DataFrame에서 이름 목록 가져오기
+    selected_name = st.selectbox('결과를 확인할 가게를 선택하세요:', options=store_names, index=0, key="store_selector")
 
     if selected_name:
-        selected_store_data = result_df[result_df['name'] == selected_name].iloc[0].to_dict()
-        st.json(selected_store_data)
+        selected_store_data = raw_result_df[raw_result_df['name'] == selected_name].iloc[0].to_dict()
+        st.json(selected_store_data) # st.json은 파이썬 객체를 자동으로 예쁘게 보여줌
 
     st.markdown("---")
     st.subheader("전체 데이터 다운로드")
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        csv_data = result_df.to_csv(index=False, encoding='utf-8-sig')
-        st.download_button("💾 CSV로 다운로드", csv_data, f"result.csv", "text/csv", use_container_width=True)
+        # CSV 다운로드를 위해 display_df 사용
+        csv_data = display_df.to_csv(index=False, encoding='utf-8-sig')
+        st.download_button(
+            label="💾 CSV로 다운로드", 
+            data=csv_data, 
+            file_name=f"result_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv", 
+            mime="text/csv", 
+            use_container_width=True
+        )
 
     with col2:
+        # Excel 다운로드를 위해 display_df 사용
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            result_df.to_excel(writer, index=False, sheet_name='Result')
+            display_df.to_excel(writer, index=False, sheet_name='Result')
         excel_data = output.getvalue()
-        st.download_button("📄 Excel로 다운로드", excel_data, f"result.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+        st.download_button(
+            label="📄 Excel로 다운로드", 
+            data=excel_data, 
+            file_name=f"result_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx", 
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+            use_container_width=True
+        )
 
     with col3:
-        json_data = result_df.to_json(orient='records', indent=4, force_ascii=False)
-        st.download_button("📝 JSON으로 다운로드", json_data, f"result.json", "application/json", use_container_width=True)
+        # JSON 다운로드를 위해 raw_result_df 사용 (원래 JSON 형태 그대로)
+        json_data = raw_result_df.to_json(orient='records', indent=4, force_ascii=False)
+        st.download_button(
+            label="📝 JSON으로 다운로드", 
+            data=json_data, 
+            file_name=f"result_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.json", 
+            mime="application/json", 
+            use_container_width=True
+        )
 
 # 3. 작업 중 오류가 발생한 경우
 if st.session_state.error_info:

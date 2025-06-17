@@ -27,9 +27,13 @@ def load_config(config_path: str) -> dict:
 app = FastAPI(title="Store Data Pipeline API")
 
 config = load_config("config.yaml")
+
 DATA_DIR = config.get('data_dir', 'data')
 OUTPUT_DIR = config.get('output_dir', 'results')
-
+PIPELINE_STAGE = config.get('pipeline_stage', 'full')
+NUM_THREADS = config.get('num_threads', 1)
+HEADLESS_MODE = config.get('headless_mode', False)
+SAVE_INTERVAL = config.get('save_interval', 0)
 
 # 작업의 상태와 결과를 저장할 간단한 인메모리 '데이터베이스'
 # (서버가 재시작되면 내용이 사라지므로, 실제 운영 환경에서는 Redis나 DB 사용을 권장합니다)
@@ -70,7 +74,14 @@ def execute_pipeline_task(task_id: str, stores_to_process: List[Dict]):
         temp_input_df.to_csv(temp_csv_path, index=False, encoding='utf-8-sig')
 
         # 1단계: 네이버 크롤링
-        naver_df = run_naver_crawling(csv_path=temp_csv_path, num_threads=1, headless_mode=True, save_interval=0, output_dir=OUTPUT_DIR)
+        # 이거 설정을 config.yaml에서 불러오도록 변경
+        naver_df = run_naver_crawling(
+            csv_path=temp_csv_path, 
+            num_threads=NUM_THREADS, # config에서 읽은 값 사용
+            headless_mode=HEADLESS_MODE, # config에서 읽은 값 사용
+            save_interval=SAVE_INTERVAL, # config에서 읽은 값 사용
+            output_dir=OUTPUT_DIR
+        )
         os.remove(temp_csv_path) # 사용한 임시 파일은 삭제
 
         if naver_df.empty: raise ValueError("네이버 크롤링 결과가 없습니다.")
