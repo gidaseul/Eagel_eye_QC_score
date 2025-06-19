@@ -45,9 +45,9 @@ USER_AGENTS = [
 class StoreCrawler:
     # 크롤링되는 features 리스트
     columns = ['naver_id','search_word','name','category', 'new_store', 'instagram_link', 'instagram_post', 'instagram_follower',
-               'visitor_review_count', 'blog_review_count', 'review_category','theme_mood','theme_topic','theme_purpose', 'menu_list', 'distance_from_subway', 'distance_from_subway_origin', 'on_tv',
+               'visitor_review_count', 'blog_review_count', 'review_category','theme_mood','theme_topic','theme_purpose', 'distance_from_subway', 'distance_from_subway_origin', 'on_tv',
                'parking_available', 'seoul_michelin', 'age-2030', 'gender-balance', 'gender_male', 'gender_female' ,'running_well', 'address', 'phone',
-               'gps_latitude', 'gps_longitude','naver_url','review_info']  # menu_list가 중간에 포함되도록 수정
+               'gps_latitude', 'gps_longitude','naver_url','menu_list','review_info']  
     
     def __init__(self, output_base_dir: str = None, headless: bool = True, thread_id=None, existing_naver_ids: set = None):
         self.headless = headless
@@ -308,11 +308,9 @@ class StoreCrawler:
             "gps_latitude": None,  
             "gps_longitude": None,
             "naver_url": None,
-            "menu_list": [],
             "review_info": [],
+            "menu_list": [],
         }
-        self.store_dict["search_word"] = self.search_word
-
     # "새로오픈" 태그를 가진 매장만을 겨냥한 크롤링 진행 시, 본격적인 매장 크롤링 직전에 실행
     def click_new_option(self):
         time.sleep(1)
@@ -621,7 +619,7 @@ class StoreCrawler:
                 datalab_section = WebDriverWait(self.driver, 10).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "div.place_section.I_y6k"))
                 )
-
+        
                 # 키워드 요소 찾기
                 theme_keyword_xpath = "//h3[contains(text(), '테마키워드')]"
                 theme_keyword_elem = WebDriverWait(self.driver, 10).until(
@@ -663,38 +661,51 @@ class StoreCrawler:
                     self.store_dict["theme_purpose"] = []
                     self.logger.info(f"테마키워드 수집 실패: {e}")
                     
-                # '더보기' 버튼 클릭
-                for attempt in range(5):  # 최대 2회 시도
-                    try:
-                        self.logger.info(f"더보기 버튼 클릭 시도 {attempt + 1}회차")
-                        button_elem = WebDriverWait(datalab_section, 10).until(
-                            EC.element_to_be_clickable((By.XPATH, ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"))
-                        )
-                        # 🔹 스크롤 내리고 클릭 재시도
-                        for _ in range(3):
-                            self.driver.execute_script("arguments[0].scrollIntoView(true);", button_elem)
-                            time.sleep(0.5)
-                            self.driver.execute_script("arguments[0].click();", button_elem)
-                            # 클릭 성공했으면 루프 탈출
-                            if "expanded" in button_elem.get_attribute("class"):
-                                break
+                # '더보기' 버튼 클릭 (존재 여부 파악이 우선적으로 필요함. 없는 경우도 존재하기 때문)
+                try:
+                    # 1. '더보기' 버튼이 존재하는지 먼저 빠르게 확인합니다.
+                    more_button_selector = ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"
+                    more_buttons = datalab_section.find_elements(By.XPATH, more_button_selector)
+                    if more_buttons:
+                        self.logger.info("'더보기' 버튼이 존재합니다. 클릭을 시도합니다.")
+                        for attempt in range(5):  # 최대 2회 시도
+                            try:
+                                self.logger.info(f"더보기 버튼 클릭 시도 {attempt + 1}회차")
+                                button_elem = WebDriverWait(datalab_section, 10).until(
+                                    EC.element_to_be_clickable((By.XPATH, ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"))
+                                )
+                                # 🔹 스크롤 내리고 클릭 재시도
+                                for _ in range(3):
+                                    self.driver.execute_script("arguments[0].scrollIntoView(true);", button_elem)
+                                    time.sleep(0.5)
+                                    self.driver.execute_script("arguments[0].click();", button_elem)
+                                    # 클릭 성공했으면 루프 탈출
+                                    if "expanded" in button_elem.get_attribute("class"):
+                                        break
 
-                        # 🔹 클릭 후 확장된 UI 요소가 등장할 때까지 대기
-                        WebDriverWait(self.driver, 10).until(
-                            EC.presence_of_element_located((By.XPATH, "//div[@class='WXrhH']"))
-                        )
-                        self.logger.info("테마 키워드 확장 완료!")
+                                # 🔹 클릭 후 확장된 UI 요소가 등장할 때까지 대기
+                                WebDriverWait(self.driver, 10).until(
+                                    EC.presence_of_element_located((By.XPATH, "//div[@class='WXrhH']"))
+                                )
+                                self.logger.info("테마 키워드 확장 완료!")
 
-                        break  #성공했으니 재시도 루프 탈출!
+                                break  #성공했으니 재시도 루프 탈출!
 
-                    except (TimeoutException, NoSuchElementException) as e:
-                        self.logger.warning(f"❌ 더보기 버튼 클릭 실패 (시도 {attempt + 1})")
-                        self.logger.warning(e)
-                        time.sleep(2)  # 실패 시 약간 대기 후 재시도
-                    except Exception as e:
-                        self.logger.warning("❌ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
-                        self.logger.warning(e)
-                        break  # 예상 못한 에러면 반복 안 하고 탈출
+                            except (TimeoutException, NoSuchElementException) as e:
+                                self.logger.warning(f"❌ 더보기 버튼 클릭 실패 (시도 {attempt + 1})")
+                                self.logger.warning(e)
+                                time.sleep(2)  # 실패 시 약간 대기 후 재시도
+                            except Exception as e:
+                                self.logger.warning("❌ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
+                                self.logger.warning(e)
+                                break  # 예상 못한 에러면 반복 안 하고 탈출
+                    else:
+                        # 3. 버튼이 존재하지 않으면, 로그만 남기고 넘어갑니다.
+                        self.logger.info("'더보기' 버튼이 없어 확장 과정을 건너뜁니다.")
+
+                except Exception as e:
+                    self.logger.warning(f"❌ '더보기' 버튼 처리 중 오류 발생: {e}")
+
 
                 try:
                     # 🔹 **연령별 데이터를 포함하는 div.gZ4G4 요소 찾기**
