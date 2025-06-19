@@ -44,6 +44,7 @@ class PipelineRequest(BaseModel):
     query: str = Field(..., description="크롤링할 검색어 (필수)", example="성수동 카페")
     latitude: Optional[float] = Field(None, description="검색 기준점 위도 (선택)", example=37.544)
     longitude: Optional[float] = Field(None, description="검색 기준점 경도 (선택)", example=127.044)
+    zoom_level: Optional[int] = Field(None, description="지도 확대 레벨(기본 값 15) (선택)") # [신규] zoom_level 필드 추가
     show_browser: bool = Field(False, description="크롤링 브라우저 창 표시 여부 (디버깅용)")
 
 class TaskResponse(BaseModel):
@@ -76,6 +77,7 @@ def execute_pipeline_task(task_id: str, request: PipelineRequest):
             latitude=request.latitude,
             longitude=request.longitude,
             headless_mode=(not request.show_browser),
+            zoom_level=request.zoom_level or 15,  # 기본값 15
             output_dir=output_dir,
             existing_naver_ids=CRAWLED_IDS_IN_SESSION
         )

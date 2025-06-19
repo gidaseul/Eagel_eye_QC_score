@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import ast
+from typing import Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -33,6 +34,7 @@ def run_naver_crawling(
     search_query: str,
     latitude: float = None,
     longitude: float = None,
+    zoom_level: Optional[int] = None, # [신규] zoom_level 인자 추가
     headless_mode: bool = True,
     output_dir: str = 'results',
     existing_naver_ids: set = None 
@@ -64,7 +66,8 @@ def run_naver_crawling(
     final_df = crawler.run_crawl(
         search_query=search_query,
         latitude=latitude,
-        longitude=longitude
+        longitude=longitude,
+        zoom_level=zoom_level
     )
     
     # 3. 중복 제거 (naver_id 기준)

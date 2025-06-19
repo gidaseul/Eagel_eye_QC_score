@@ -11,13 +11,13 @@ from selenium.webdriver.firefox.service import Service
 # from Age_balance_store_based_crawling import extract_demographic_data
 from difflib import SequenceMatcher
 from rapidfuzz import fuzz
-
+from typing import Optional, List, Dict
 
 from datetime import datetime, date
 from urllib.parse import urlparse, parse_qs
 from shapely.geometry import Point
 
-import urllib.parse
+from urllib.parse import quote
 import pandas as pd
 import os
 import sys
@@ -91,7 +91,7 @@ class StoreCrawler:
         self.entry_iframe = "entryIframe"
 
     # [신규] 새로운 최상위 실행 메소드
-    def run_crawl(self, search_query: str, latitude: float = None, longitude: float = None):
+    def run_crawl(self, search_query: str, latitude: float = None, longitude: float = None, zoom_level: Optional[int] = None):
         """
         입력 파라미터에 따라 크롤링 전체 과정을 조율하고 실행합니다.
         """
@@ -101,11 +101,12 @@ class StoreCrawler:
         try:
             # 1. 위도/경도 유무에 따른 시작 페이지 분기
             if latitude and longitude:
-                self.logger.info(f"좌표 기반 검색 시작: {latitude}, {longitude}")
-                zoom_level = 15 # 고정된 기본 zoom 값
+                final_zoom_level = zoom_level if zoom_level is not None else 15
+                self.logger.info(f"좌표 기반 검색 시작 (Zoom: {final_zoom_level})...")
                 url = f"https://map.naver.com/p/?c={zoom_level},{latitude},{longitude},0,0" # 확정!
                 self.logger.info(f"생성된 지도 URL: {url}")
                 self.driver.get(url)
+                time.sleep(1.5)
             else:
                 self.logger.info("키워드 기반 검색 시작")
                 self.driver.get('https://map.naver.com/')
