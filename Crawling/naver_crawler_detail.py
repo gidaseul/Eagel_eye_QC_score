@@ -593,11 +593,12 @@ class StoreCrawler:
                 self.store_dict["parking_available"] = False
 
 
-            # 홈 탭에 있는 영역 크롤랑 # 
+            # 홈 탭에 있는 영역 크롤랑 
             try:
                 # '홈' 탭으로 이동 후 스크롤로 모든 콘텐츠 로드
-                self.move_to_tab('홈') 
-                # 마지막 스크롤을 한 이후에 
+                self.move_to_tab('홈')
+
+                # 페이지 끝까지 스크롤하여 모든 동적 콘텐츠 로드
                 last_height = self.driver.execute_script("return document.body.scrollHeight")
                 while True:
                     self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -606,107 +607,111 @@ class StoreCrawler:
                     if new_height == last_height:
                         break
                     last_height = new_height
+                time.sleep(1) # 스크롤 후 DOM 안정화 대기
+                
+                # [모듈 0] 데이터랩 섹션이 없으면 모든 과정을 건너뜀
+                datalab_sections = self.driver.find_elements(By.CSS_SELECTOR, "div.place_section.I_y6k")
+                if not datalab_sections:
+                    self.logger.info("데이터랩 섹션이 없어 홈 탭 수집을 건너뜁니다.")
+                else:
+                    datalab_section = datalab_sections[0]
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", datalab_section)
+                    time.sleep(1)
 
-                # 1. "데이터랩" 섹션까지 스크롤
-                datalab_xpath = "//span[@class='place_blind' and contains(text(), '데이터랩')]"
-                datalab_elem = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, datalab_xpath))
-                )
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", datalab_elem)
 
-
-                # 2. 데이터랩 전체 영역 div(place_section I_y6k) 찾기
-                datalab_section = WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.place_section.I_y6k"))
-                )
-        
-                # 키워드 요소 찾기
-                theme_keyword_xpath = "//h3[contains(text(), '테마키워드')]"
-                theme_keyword_elem = WebDriverWait(self.driver, 10).until(
-                    EC.visibility_of_element_located((By.XPATH, theme_keyword_xpath))
-                )
-                self.logger.info(f"테마키워드 HTML: {theme_keyword_elem.get_attribute('outerHTML')}")
-
-                # 테마키워드 수집
+                # [모듈 1] 테마키워드 및 '더보기' 처리
                 try:
-                    theme_container = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.XPATH, ".//div[@class='WXrhH']"))
+                    # 키워드 요소 찾기
+                    theme_keyword_xpath = "//h3[contains(text(), '테마키워드')]"
+                    theme_keyword_elem = WebDriverWait(self.driver, 10).until(
+                        EC.visibility_of_element_located((By.XPATH, theme_keyword_xpath))
                     )
-                    li_elements = theme_container.find_elements(By.XPATH, ".//ul[@class='v4tIa']/li")
+                    if theme_keyword_elem:
 
-                    theme_by_category = {
-                        "분위기": [],
-                        "인기토픽": [],
-                        "찾는목적": []
-                    }
-                    for li in li_elements:
-                        # 메인 카테고리
-                        main_category = li.find_element(By.CLASS_NAME, "pNnVF").text.strip()
-                        # 세부 키워드 추출
-                        if main_category in theme_by_category:  # 조건 추가
-                            sub_items = li.find_elements(By.XPATH, ".//span[@class='sJgQj']/span")
-                            extracted = [s.text.replace(",", "").strip() for s in sub_items if s.text.strip()]
-                            theme_by_category[main_category].extend(extracted)
+                        self.logger.info(f"테마키워드 HTML: {theme_keyword_elem.get_attribute('outerHTML')}")
 
-                    # 결과 저장
-                    # 개별 항목별로 store_dict에 저장
-                    self.store_dict["theme_mood"] = theme_by_category["분위기"]
-                    self.store_dict["theme_topic"] = theme_by_category["인기토픽"]
-                    self.store_dict["theme_purpose"] = theme_by_category["찾는목적"]
+                        # 테마키워드 수집
+                        try:
+                            theme_container = WebDriverWait(self.driver, 10).until(
+                                EC.presence_of_element_located((By.XPATH, ".//div[@class='WXrhH']"))
+                            )
+                            li_elements = theme_container.find_elements(By.XPATH, ".//ul[@class='v4tIa']/li")
 
+                            theme_by_category = {
+                                "분위기": [],
+                                "인기토픽": [],
+                                "찾는목적": []
+                            }
+                            for li in li_elements:
+                                # 메인 카테고리
+                                main_category = li.find_element(By.CLASS_NAME, "pNnVF").text.strip()
+                                # 세부 키워드 추출
+                                if main_category in theme_by_category:  # 조건 추가
+                                    sub_items = li.find_elements(By.XPATH, ".//span[@class='sJgQj']/span")
+                                    extracted = [s.text.replace(",", "").strip() for s in sub_items if s.text.strip()]
+                                    theme_by_category[main_category].extend(extracted)
+
+                            # 결과 저장
+                            # 개별 항목별로 store_dict에 저장
+                            self.store_dict["theme_mood"] = theme_by_category["분위기"]
+                            self.store_dict["theme_topic"] = theme_by_category["인기토픽"]
+                            self.store_dict["theme_purpose"] = theme_by_category["찾는목적"]
+
+                        except Exception as e:
+                            self.logger.warning("❌ 테마키워드 수집 실패")
+                            self.store_dict["theme_mood"] = []
+                            self.store_dict["theme_topic"] = []
+                            self.store_dict["theme_purpose"] = []
+                            self.logger.info(f"테마키워드 수집 실패: {e}")
+                            
+                        # '더보기' 버튼 클릭 (존재 여부 파악이 우선적으로 필요함. 없는 경우도 존재하기 때문)
+                        try:
+                            # 1. '더보기' 버튼이 존재하는지 먼저 빠르게 확인합니다.
+                            more_button_selector = ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"
+                            more_buttons = datalab_section.find_elements(By.XPATH, more_button_selector)
+                            if more_buttons:
+                                self.logger.info("'더보기' 버튼이 존재합니다. 클릭을 시도합니다.")
+                                for attempt in range(5):  # 최대 2회 시도
+                                    try:
+                                        self.logger.info(f"더보기 버튼 클릭 시도 {attempt + 1}회차")
+                                        button_elem = WebDriverWait(datalab_section, 10).until(
+                                            EC.element_to_be_clickable((By.XPATH, ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"))
+                                        )
+                                        # 🔹 스크롤 내리고 클릭 재시도
+                                        for _ in range(3):
+                                            self.driver.execute_script("arguments[0].scrollIntoView(true);", button_elem)
+                                            time.sleep(0.5)
+                                            self.driver.execute_script("arguments[0].click();", button_elem)
+                                            # 클릭 성공했으면 루프 탈출
+                                            if "expanded" in button_elem.get_attribute("class"):
+                                                break
+
+                                        # 🔹 클릭 후 확장된 UI 요소가 등장할 때까지 대기
+                                        WebDriverWait(self.driver, 10).until(
+                                            EC.presence_of_element_located((By.XPATH, "//div[@class='WXrhH']"))
+                                        )
+                                        self.logger.info("테마 키워드 확장 완료!")
+
+                                        break  #성공했으니 재시도 루프 탈출!
+
+                                    except (TimeoutException, NoSuchElementException) as e:
+                                        self.logger.warning(f"❌ 더보기 버튼 클릭 실패 (시도 {attempt + 1})")
+                                        self.logger.warning(e)
+                                        time.sleep(2)  # 실패 시 약간 대기 후 재시도
+                                    except Exception as e:
+                                        self.logger.warning("❌ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
+                                        self.logger.warning(e)
+                                        break  # 예상 못한 에러면 반복 안 하고 탈출
+                            else:
+                                # 3. 버튼이 존재하지 않으면, 로그만 남기고 넘어갑니다.
+                                self.logger.info("'더보기' 버튼이 없어 확장 과정을 건너뜁니다.")
+
+                        except Exception as e:
+                            self.logger.warning(f"❌ '더보기' 버튼 처리 중 오류 발생: {e}")
                 except Exception as e:
-                    self.logger.warning("❌ 테마키워드 수집 실패")
-                    self.store_dict["theme_mood"] = []
-                    self.store_dict["theme_topic"] = []
-                    self.store_dict["theme_purpose"] = []
-                    self.logger.info(f"테마키워드 수집 실패: {e}")
-                    
-                # '더보기' 버튼 클릭 (존재 여부 파악이 우선적으로 필요함. 없는 경우도 존재하기 때문)
-                try:
-                    # 1. '더보기' 버튼이 존재하는지 먼저 빠르게 확인합니다.
-                    more_button_selector = ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"
-                    more_buttons = datalab_section.find_elements(By.XPATH, more_button_selector)
-                    if more_buttons:
-                        self.logger.info("'더보기' 버튼이 존재합니다. 클릭을 시도합니다.")
-                        for attempt in range(5):  # 최대 2회 시도
-                            try:
-                                self.logger.info(f"더보기 버튼 클릭 시도 {attempt + 1}회차")
-                                button_elem = WebDriverWait(datalab_section, 10).until(
-                                    EC.element_to_be_clickable((By.XPATH, ".//div[contains(@class, 'NSTUp')]//span[contains(text(), '더보기')]"))
-                                )
-                                # 🔹 스크롤 내리고 클릭 재시도
-                                for _ in range(3):
-                                    self.driver.execute_script("arguments[0].scrollIntoView(true);", button_elem)
-                                    time.sleep(0.5)
-                                    self.driver.execute_script("arguments[0].click();", button_elem)
-                                    # 클릭 성공했으면 루프 탈출
-                                    if "expanded" in button_elem.get_attribute("class"):
-                                        break
-
-                                # 🔹 클릭 후 확장된 UI 요소가 등장할 때까지 대기
-                                WebDriverWait(self.driver, 10).until(
-                                    EC.presence_of_element_located((By.XPATH, "//div[@class='WXrhH']"))
-                                )
-                                self.logger.info("테마 키워드 확장 완료!")
-
-                                break  #성공했으니 재시도 루프 탈출!
-
-                            except (TimeoutException, NoSuchElementException) as e:
-                                self.logger.warning(f"❌ 더보기 버튼 클릭 실패 (시도 {attempt + 1})")
-                                self.logger.warning(e)
-                                time.sleep(2)  # 실패 시 약간 대기 후 재시도
-                            except Exception as e:
-                                self.logger.warning("❌ Datalab 더보기 버튼 클릭 중 예기치 못한 오류")
-                                self.logger.warning(e)
-                                break  # 예상 못한 에러면 반복 안 하고 탈출
-                    else:
-                        # 3. 버튼이 존재하지 않으면, 로그만 남기고 넘어갑니다.
-                        self.logger.info("'더보기' 버튼이 없어 확장 과정을 건너뜁니다.")
-
-                except Exception as e:
-                    self.logger.warning(f"❌ '더보기' 버튼 처리 중 오류 발생: {e}")
-
-
+                    self.logger.warning(f"❌ 테마키워드 모듈 처리 중 오류: {e}")
+                
+                # [모듈 2] 연령별/성별 데이터 처리
                 try:
                     # 🔹 **연령별 데이터를 포함하는 div.gZ4G4 요소 찾기**
                     gender_age_container_xpath = "//div[contains(@class, 'gZ4G4')]"
