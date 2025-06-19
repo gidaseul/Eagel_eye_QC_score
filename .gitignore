@@ -4,6 +4,7 @@
 # 작업 결과
 data/
 logs/
+results/
 
 #  무시할 확장자
 *.csv
@@ -20,4 +21,3 @@ __pycache__/
 
 #  macOS
 .DS_Store
-

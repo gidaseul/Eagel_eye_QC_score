@@ -1,58 +1,50 @@
-# src/api_server.py
-import yaml # YAML 파일을 읽기 위해 import
-from dotenv import load_dotenv # .env 파일을 읽기 위해 import
-import google.generativeai as genai
+# api_server.py (최종 완성본)
+
+import os
 import sys
 import uuid
-import os
+import re
+import yaml
 import pandas as pd
-from fastapi import FastAPI, BackgroundTasks, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Optional
 import traceback
+import subprocess
+from fastapi import FastAPI, BackgroundTasks, HTTPException
+from pydantic import BaseModel, Field
+from typing import Dict, Optional
+from datetime import datetime
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-# 기존에 만들었던 파이프라인 모듈들을 import 합니다.
+# 기존에 만들었던 파이프라인 모듈들을 import합니다.
+# 이 함수들이 api_server.py와 같은 레벨의 폴더에 있다고 가정합니다.
 from Crawling.naver_crawler import run_naver_crawling
 from Crawling.kakao_crawler import run_kakao_crawling
 from QC_score.score_pipline import run_scoring_pipeline
 
-def load_config(config_path: str) -> dict:
-    """YAML 설정 파일을 불러옵니다."""
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
-    except FileNotFoundError:
-        return {}
-
-# --- 1. FastAPI 앱 초기화 및 설정 ---
+# --- 1. 설정 및 전역 변수 초기화 ---
 app = FastAPI(title="Store Data Pipeline API")
-config = load_config("config.yaml")
 
-DATA_DIR = config.get('data_dir', 'data')
-OUTPUT_DIR = config.get('output_dir', 'results')
-PIPELINE_STAGE = config.get('pipeline_stage', 'full')
-NUM_THREADS = config.get('num_threads', 1)
-HEADLESS_MODE = config.get('headless_mode', True)
-SAVE_INTERVAL = config.get('save_interval', 0)
+# 설정 파일 로드
+try:
+    config = yaml.safe_load(open("config.yaml", 'r', encoding='utf-8'))
+except FileNotFoundError:
+    print("오류: config.yaml 파일을 찾을 수 없습니다. 기본값으로 실행됩니다.")
+    config = {}
 
-# 작업의 상태와 결과를 저장할 간단한 인메모리 '데이터베이스'
-# (서버가 재시작되면 내용이 사라지므로, 실제 운영 환경에서는 Redis나 DB 사용을 권장합니다)
+# .env 파일에서 API 키 로드
+load_dotenv(dotenv_path=".config.env")
+
+# 작업 상태 및 결과를 저장할 인메모리 DB
 tasks_db: Dict[str, Dict] = {}
+# 서버 세션 동안 중복 ID를 관리할 set (서버 재시작 시 초기화됨)
+CRAWLED_IDS_IN_SESSION: set = set()
 
-# --- 2. API가 주고받을 데이터 형식 정의 (Pydantic 모델) ---
-class StoreInput(BaseModel):
-    name: str
-    location: str
-
-class PipelineOptions(BaseModel):
-    num_threads: int = NUM_THREADS
-    headless_mode: bool = HEADLESS_MODE
-    save_interval: int = SAVE_INTERVAL
-
-
+# --- 2. API 데이터 형식 정의 (Pydantic) ---
 class PipelineRequest(BaseModel):
-    stores: List[StoreInput]
-    options: Optional[PipelineOptions] = None # 옵션은 필수가 아님
+    query: str = Field(..., description="크롤링할 검색어 (필수)", example="성수동 카페")
+    latitude: Optional[float] = Field(None, description="검색 기준점 위도 (선택)", example=37.544)
+    longitude: Optional[float] = Field(None, description="검색 기준점 경도 (선택)", example=127.044)
+    show_browser: bool = Field(False, description="크롤링 브라우저 창 표시 여부 (디버깅용)")
 
 class TaskResponse(BaseModel):
     task_id: str
@@ -61,114 +53,112 @@ class TaskResponse(BaseModel):
 class StatusResponse(BaseModel):
     task_id: str
     status: str
-    result: Optional[List[Dict]] = None
+    result_path: Optional[str] = None
+    error: Optional[str] = None
 
-# --- 3. 백그라운드에서 실행될 실제 파이프라인 함수 ---
-def execute_pipeline_task(task_id: str, stores_to_process: List[Dict], options: Dict):
-    """
-    오래 걸리는 전체 파이프라인 로직을 수행하는 함수입니다.
-    이 함수는 BackgroundTasks에 의해 별도로 실행됩니다.
-    """
+# --- 3. 핵심 파이프라인 실행 함수 ---
+def execute_pipeline_task(task_id: str, request: PipelineRequest):
+    """오래 걸리는 전체 파이프라인 로직을 수행하는 함수 (백그라운드 실행용)"""
+    output_dir = ""
     try:
-        # 작업 상태를 '처리중'으로 업데이트
-        tasks_db[task_id] = {"status": "processing: 1. naver crawling", "result": None}
-        print(f"[{task_id}] 파이프라인 시작...")
+        tasks_db[task_id] = {"status": "processing", "result_path": None, "error": None}
+        print(f"[{task_id}] 파이프라인 시작: query='{request.query}'")
 
-        # [수정] UI 옵션값과 config 기본값을 비교하여 최종 실행값 결정 ▼▼▼
-        num_threads_run = options.get('num_threads', NUM_THREADS)
-        headless_mode_run = options.get('headless_mode', HEADLESS_MODE)
-        save_interval_run = options.get('save_interval', SAVE_INTERVAL)
-
-        print(f"[{task_id}] 실행 옵션 - 스레드: {num_threads_run}, 헤드리스: {headless_mode_run}, 저장간격: {save_interval_run}")
-
-
-        # run_naver_crawling 함수는 CSV 파일 경로를 인자로 받으므로,
-        # API로 받은 가게 목록을 임시 CSV 파일로 저장합니다.
-        temp_input_df = pd.DataFrame(stores_to_process)
-        temp_csv_path = os.path.join(DATA_DIR, f"temp_input_{task_id}.csv")
-        temp_input_df.to_csv(temp_csv_path, index=False, encoding='utf-8-sig')
-
-        # 1단계: 네이버 크롤링
+        safe_query_name = re.sub(r'[\\/*?:"<>|]', "", request.query)
+        run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_dir = os.path.join(config.get('output_dir', 'results'), f"{safe_query_name}_{task_id[:3]}_{run_timestamp}")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 1. Naver Crawling
+        tasks_db[task_id]["status"] = "processing: naver crawling"
         naver_df = run_naver_crawling(
-            csv_path=temp_csv_path, num_threads=num_threads_run,
-            headless_mode=headless_mode_run, save_interval=save_interval_run, output_dir=OUTPUT_DIR
+            search_query=request.query,
+            latitude=request.latitude,
+            longitude=request.longitude,
+            headless_mode=(not request.show_browser),
+            output_dir=output_dir,
+            existing_naver_ids=CRAWLED_IDS_IN_SESSION
         )
-        os.remove(temp_csv_path)
         if naver_df.empty: raise ValueError("네이버 크롤링 결과가 없습니다.")
         
-       # 2단계: 카카오 크롤링
-        tasks_db[task_id]["status"] = "processing: 2. kakao crawling"
-        kakao_df = run_kakao_crawling(input_df=naver_df, max_threads=num_threads_run, headless=headless_mode_run)
-        
-        # 3단계: 점수 산정
-        tasks_db[task_id]["status"] = "processing: 3. scoring"
-        final_data_list = run_scoring_pipeline(input_data=kakao_df.to_dict('records'), data_dir=DATA_DIR)
-        
-        tasks_db[task_id].update({"status": "completed", "result": final_data_list})
-        print(f"[{task_id}] 파이프라인 성공적으로 완료.")
+        newly_crawled_ids = set(naver_df['naver_id'].dropna().unique())
+        CRAWLED_IDS_IN_SESSION.update(newly_crawled_ids)
+        print(f"[{task_id}] 네이버 크롤링 완료. 현재까지 누적 ID 개수: {len(CRAWLED_IDS_IN_SESSION)}")
 
+        # 2. Kakao Crawling
+        tasks_db[task_id]["status"] = "processing: kakao crawling"
+        kakao_df = run_kakao_crawling(
+            input_df=naver_df,
+            max_threads=config.get('num_threads', 3),
+            headless=(not request.show_browser)
+        )
+
+        # 3. Scoring
+        tasks_db[task_id]["status"] = "processing: scoring"
+        final_list = run_scoring_pipeline(
+            input_data=kakao_df.to_dict('records'),
+            data_dir=config.get('data_dir', 'data')
+        )
+        if not final_list: raise ValueError("점수 산정 결과가 없습니다.")
+
+        final_df = pd.DataFrame(final_list)
+        final_output_path = os.path.join(output_dir, "final_result.json")
+        final_df.to_json(final_output_path, orient='records', force_ascii=False, indent=2)
+        
+        tasks_db[task_id].update({"status": "completed", "result_path": final_output_path})
+        print(f"[{task_id}] 파이프라인 성공. 결과: {final_output_path}")
 
     except Exception as e:
-        # 오류 발생 시 상태를 'failed'로 변경
-        tasks_db[task_id].update({"status": "failed", "result": {"error": str(e), "traceback": traceback.format_exc()}})
-        print(f"[{task_id}] 파이프라인 실행 중 오류 발생: {e}")
+        error_message = str(e)
+        tasks_db[task_id].update({"status": "failed", "error": error_message})
+        print(f"[{task_id}] 파이프라인 오류: {error_message}")
+        if output_dir:
+            error_log_path = os.path.join(output_dir, "error_log.txt")
+            with open(error_log_path, 'w', encoding='utf-8') as f:
+                f.write(f"Error: {error_message}\n\n")
+                f.write(traceback.format_exc())
 
+# --- 4. 서버 시작 시 실행될 이벤트 ---
+def clean_firefox_cache():
+    """Firefox 관련 캐시 파일을 정리합니다."""
+    try:
+        print("🧹 /tmp 내 Firefox 캐시 파일 정리 시도...")
+        if sys.platform != "win32": # 윈도우가 아닐 경우에만 실행
+            subprocess.run("rm -rf /tmp/rust_mozprofile* /tmp/Temp-*profile /tmp/geckodriver*", shell=True, check=False)
+            print("✅ 캐시 파일 정리 완료.")
+        else:
+            print("- 윈도우 환경에서는 캐시 정리를 건너뜁니다.")
+    except Exception as e:
+        print(f"⚠️ 캐시 파일 정리 중 오류 발생: {e}")
 
-# --- 4. API 서버 시작 시 단 한번 실행될 이벤트 ---
-@app.on_event("startup")
-def on_startup():
-    """API 서버가 시작될 때 API 키를 설정하고 폴더를 생성합니다."""
-    load_dotenv(dotenv_path=".config.env")
+def setup_api_key():
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY를 찾을 수 없습니다. .env 파일을 확인하세요.")
-    
-    try:
-        API_KEY = os.getenv("GOOGLE_API_KEY")
-        genai.configure(api_key=API_KEY)
-        list(genai.list_models())
-        print("✅ Google Gemini API 키가 성공적으로 검증되었습니다.")
-    except Exception as e:
-        raise RuntimeError(f"API 키가 유효하지 않습니다: {e}")
+        print("경고: GOOGLE_API_KEY를 찾을 수 없습니다. Scoring 단계가 실패할 수 있습니다.")
+        return
+    genai.configure(api_key=api_key)
+    print("✅ Google Gemini API 키가 설정되었습니다.")
 
-    # 필요한 폴더 생성
-    os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    print("API 서버가 시작되었습니다.")
-# --- 5. API 엔드포인트(URL 주소) 구현 ---
+@app.on_event("startup")
+def on_startup():
+    print("🚀 API 서버 시작...")
+    setup_api_key()
+    clean_firefox_cache()
 
-# 초기 config 값을 반환
-@app.get("/config")
-async def get_config():
-    """UI가 초기값을 설정할 수 있도록 서버의 기본 설정을 반환합니다."""
-    return {"num_threads": NUM_THREADS, "headless_mode": HEADLESS_MODE, "save_interval": SAVE_INTERVAL}
-
-
-
-@app.post("/run-pipeline", response_model=TaskResponse, status_code=202)
+# --- 5. API 엔드포인트 구현 ---
+@app.post("/pipeline/run", response_model=TaskResponse, status_code=202)
 async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: BackgroundTasks):
-    """
-    파이프라인 실행을 요청하고 즉시 '진동벨'(작업 ID)을 반환합니다.
-    """
-    if not request.stores:
-        raise HTTPException(status_code=400, detail="매장 목록이 비어있습니다.")
-
-    task_id = str(uuid.uuid4()) # 고유한 작업 ID 생성
-    tasks_db[task_id] = {"status": "pending", "result": None}
+    """파이프라인 실행을 요청하고 즉시 작업 ID를 반환합니다."""
+    task_id = str(uuid.uuid4())
+    tasks_db[task_id] = {"status": "pending"}
     
-    request_options = request.options.dict() if request.options else {}
+    background_tasks.add_task(execute_pipeline_task, task_id, request)
     
-    # execute_pipeline_task 함수를 백그라운드에서 실행하도록 등록
-    background_tasks.add_task(execute_pipeline_task, task_id, request.dict()["stores"], request_options)
-    
-    return {"task_id": task_id, "message": "파이프라인 작업이 접수되었습니다."}
+    return {"task_id": task_id, "message": "파이프라인 작업이 접수되었습니다. '/pipeline/status/{task_id}'로 상태를 확인하세요."}
 
-
-@app.get("/status/{task_id}", response_model=StatusResponse)
+@app.get("/pipeline/status/{task_id}", response_model=StatusResponse)
 async def get_task_status_endpoint(task_id: str):
-    """
-    주어진 작업 ID의 현재 상태와 결과를 확인합니다.
-    """
+    """주어진 작업 ID의 현재 상태와 결과를 확인합니다."""
     task = tasks_db.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="해당 작업 ID를 찾을 수 없습니다.")

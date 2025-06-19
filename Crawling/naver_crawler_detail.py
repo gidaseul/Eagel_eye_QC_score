@@ -16,6 +16,8 @@ from rapidfuzz import fuzz
 from datetime import datetime, date
 from urllib.parse import urlparse, parse_qs
 from shapely.geometry import Point
+
+import urllib.parse
 import pandas as pd
 import os
 import sys
@@ -47,7 +49,7 @@ class StoreCrawler:
     columns = ['naver_id','search_word','name','category', 'new_store', 'instagram_link', 'instagram_post', 'instagram_follower',
                'visitor_review_count', 'blog_review_count', 'review_category','theme_mood','theme_topic','theme_purpose', 'distance_from_subway', 'distance_from_subway_origin', 'on_tv',
                'parking_available', 'seoul_michelin', 'age-2030', 'gender-balance', 'gender_male', 'gender_female' ,'running_well', 'address', 'phone',
-               'gps_latitude', 'gps_longitude','naver_url','menu_list','review_info']  
+               'gps_latitude', 'gps_longitude','naver_url','menu_list','review_info', 'Crawl_Date']  
     
     def __init__(self, output_base_dir: str = None, headless: bool = True, thread_id=None, existing_naver_ids: set = None):
         self.headless = headless
@@ -100,7 +102,9 @@ class StoreCrawler:
             # 1. 위도/경도 유무에 따른 시작 페이지 분기
             if latitude and longitude:
                 self.logger.info(f"좌표 기반 검색 시작: {latitude}, {longitude}")
-                url = f"https://map.naver.com/p?c=17.00,{longitude},{latitude},0,0,0,dh"
+                zoom_level = 15 # 고정된 기본 zoom 값
+                url = f"https://map.naver.com/p/?c={zoom_level},{latitude},{longitude},0,0" # 확정!
+                self.logger.info(f"생성된 지도 URL: {url}")
                 self.driver.get(url)
             else:
                 self.logger.info("키워드 기반 검색 시작")
@@ -310,6 +314,7 @@ class StoreCrawler:
             "naver_url": None,
             "review_info": [],
             "menu_list": [],
+            "Crawl_Date": datetime.now().strftime("%Y-%m-%d")
         }
     # "새로오픈" 태그를 가진 매장만을 겨냥한 크롤링 진행 시, 본격적인 매장 크롤링 직전에 실행
     def click_new_option(self):
@@ -350,7 +355,7 @@ class StoreCrawler:
         time.sleep(2)
 
 
-    # [수정] naver_id 인자를 제거하고, 내부 로직을 '현재 로드된 페이지' 기준으로 변경
+    # [수정] naver_id 인자를 제거하고, 내부 로직을 '현재 로드된 페이지' 기준으로 변경 
     def get_store_details(self):
         try:
             self.logger.info("매장 상세 정보 수집 시작...")
