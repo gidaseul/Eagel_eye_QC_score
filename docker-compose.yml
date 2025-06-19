@@ -1,0 +1,14 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: your-docker-id/pipeline-api:latest # 본인의 Docker Hub ID로 변경
+    ports:
+      - "8000:8000"
+    env_file:
+      - .config.env
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+    restart: unless-stopped

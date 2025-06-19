@@ -580,4 +580,3 @@ def run_scoring_pipeline(input_data: List[Dict], data_dir: str) -> List[Dict]:
     # ▼▼▼ [수정] 파일 저장 로직 제거, 처리된 데이터를 return ▼▼▼
     print("모든 매장의 점수 산정이 완료되었습니다.")
     return processed_data
-
