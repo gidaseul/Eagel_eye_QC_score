@@ -1,16 +1,20 @@
-pandas
-Levenshtein
-rapidfuzz
-selenium
-shapely
-pyproj
-python-dotenv
-pydantic
-tqdm
-requests
-PyYAML
-google-generativeai
-webdriver-manager
-typing-extensions
-uvicorn
-fastapi
+# API 서버 실행을 위한 핵심 프레임워크
+fastapi==0.115.6
+uvicorn==0.34.0
+
+# 데이터 처리 및 설정 파일 로딩
+pandas==2.2.3
+PyYAML==6.0.2
+
+# AWS S3, 환경 변수, API 키 관리
+boto3==1.36.20
+python-dotenv==1.1.0
+google-generativeai==0.8.5
+
+# 웹 크롤링 (Selenium)
+selenium==4.27.1
+
+# 기타 유틸리티 (문자열 유사도, 점수 산정 등)
+rapidfuzz==3.12.2
+Levenshtein==0.27.1
+Shapely==2.0.6

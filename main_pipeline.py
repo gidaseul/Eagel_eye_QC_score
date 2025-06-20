@@ -8,6 +8,8 @@ import pandas as pd
 from datetime import datetime
 import ast
 import re
+import boto3
+from typing import Set, Dict, List, Any
 
 # .env 파일 로드를 위해 python-dotenv 설치 필요 (pip install python-dotenv)
 from dotenv import load_dotenv
@@ -17,6 +19,7 @@ import google.generativeai as genai
 from Crawling.naver_crawler import run_naver_crawling
 from Crawling.kakao_crawler import run_kakao_crawling
 from QC_score.score_pipline import run_scoring_pipeline
+from Crawling.utils.master_loader import load_ids_from_master_data
 
 CONFIG_ENV_PATH = ".config.env"
 # .env 파일에서 환경 변수를 로드합니다.
@@ -130,8 +133,18 @@ def main():
     # --- 3. 파이프라인 단계별 실행 ---
     print(f"\n===== 파이프라인 시작 (단계: {PIPELINE_STAGE.upper()}, 검색어: '{args.query}') =====")
     
-    # [신규] 중복 ID 관리를 위한 set (현재는 단일 실행이지만, 추후 확장을 위해 구조 유지)
-    crawled_naver_ids = set()
+    # ★★★ 수정된 부분: S3 로직을 로컬 JSON 로더 호출로 변경 ★★★
+    # config.yaml에서 JSON 파일 경로를 읽어옵니다.
+    id_json_path = config.get('id_json_path') # 예: 'data/existing_naver_ids.json'
+    
+    # 파이프라인 시작 시, 로컬 JSON 파일에서 ID 목록을 불러옵니다.
+    if id_json_path:
+        crawled_naver_ids = load_ids_from_master_data(id_json_path)
+    else:
+        print("경고: ID 목록 JSON 파일 경로(id_json_path)가 설정되지 않아, 세션 내 중복만 확인합니다.")
+        crawled_naver_ids = set()
+    
+    
     current_df = pd.DataFrame()
 
     try:

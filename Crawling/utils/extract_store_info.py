@@ -4,6 +4,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 
+
+# 참고 할 만한 것!
 def extract_store_info(driver, iframe_element, index):
     """
     네이버 지도 iframe에서 GPS 좌표 추출

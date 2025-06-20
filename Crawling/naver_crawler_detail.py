@@ -75,7 +75,7 @@ class StoreCrawler:
         self.user_agent_index = random.randint(0, len(USER_AGENTS) - 1)
         self.driver = self.init_driver()
         
-        # [신규] 중복 방지를 위한 existing_naver_ids 세트 초기화
+        # ★★★ 핵심: 외부에서 전달받은 ID 목록(set)을 저장. 없으면 빈 set으로 초기화 ★★★
         self.existing_naver_ids = existing_naver_ids if existing_naver_ids is not None else set()
 
         # 드라이버가 있는 경우에만 wait 객체 세팅
@@ -91,43 +91,101 @@ class StoreCrawler:
         self.entry_iframe = "entryIframe"
 
     # [신규] 새로운 최상위 실행 메소드
+    # def run_crawl(self, search_query: str, latitude: float = None, longitude: float = None, zoom_level: Optional[int] = None):
+    #     """
+    #     입력 파라미터에 따라 크롤링 전체 과정을 조율하고 실행합니다.
+    #     """
+    #     self.search_word = search_query
+    #     self.logger.info(f"크롤링 작업 시작. 검색어: '{search_query}', 좌표: ({latitude}, {longitude})")
+
+    #     try:
+    #         # 1. 위도/경도 유무에 따른 시작 페이지 분기
+    #         if latitude and longitude:
+    #             final_zoom_level = zoom_level if zoom_level is not None else 15
+    #             self.logger.info(f"좌표 기반 검색 시작 (Zoom: {final_zoom_level})...")
+    #             url = f"https://map.naver.com/p/?c={zoom_level},{latitude},{longitude},0,0" # 확정!
+    #             self.logger.info(f"생성된 지도 URL: {url}")
+    #             self.driver.get(url)
+    #             time.sleep(1.5)
+    #         else:
+    #             self.logger.info("키워드 기반 검색 시작")
+    #             self.driver.get('https://map.naver.com/')
+    #         time.sleep(2) # 페이지 로딩 대기
+
+    #         # 2. 키워드 검색 실행
+    #         search_result_type = self.search_keyword()
+
+    #         # 3. 검색 결과에 따라 분기 처리
+    #         if search_result_type == 'search':
+    #             self.logger.info("검색 결과: 목록 페이지. 전체 목록 크롤링을 시작합니다.")
+    #             self.crawl_all_results_in_list()
+    #         elif search_result_type == 'entry':
+    #             self.logger.info("검색 결과: 단일 상세 페이지. 해당 가게 정보를 크롤링합니다.")
+    #             self.init_dictionary()
+    #             self.get_store_details()
+    #         else: # 'none', 'error', 'unknown'
+    #             self.logger.warning("검색 결과가 없거나 오류가 발생하여 크롤링을 종료합니다.")
+
+    #     except Exception as e:
+    #         self.logger.error(f"크롤링 실행 중 심각한 오류 발생: {e}", exc_info=True)
+    #     finally:
+    #         self.quit()
+    #         self.logger.info(f"크롤링 작업 완료. 총 {len(self.data)}개 데이터 수집.")
+    #         return self.data
+
+    # 수정한 것(keyword 합친 것)
     def run_crawl(self, search_query: str, latitude: float = None, longitude: float = None, zoom_level: Optional[int] = None):
-        """
-        입력 파라미터에 따라 크롤링 전체 과정을 조율하고 실행합니다.
-        """
         self.search_word = search_query
         self.logger.info(f"크롤링 작업 시작. 검색어: '{search_query}', 좌표: ({latitude}, {longitude})")
 
         try:
-            # 1. 위도/경도 유무에 따른 시작 페이지 분기
+            final_zoom_level = zoom_level if zoom_level is not None else 15
+            encoded_query = quote(search_query)
+
+            # URL 생성
             if latitude and longitude:
-                final_zoom_level = zoom_level if zoom_level is not None else 15
+                
                 self.logger.info(f"좌표 기반 검색 시작 (Zoom: {final_zoom_level})...")
-                url = f"https://map.naver.com/p/?c={zoom_level},{latitude},{longitude},0,0" # 확정!
-                self.logger.info(f"생성된 지도 URL: {url}")
-                self.driver.get(url)
-                time.sleep(1.5)
+                url = f"https://map.naver.com/p/search/{encoded_query}?c={final_zoom_level:.2f},{longitude},{latitude},0,0,0,dh"
+                time.sleep(1.5)  # 페이지 로딩 대기
             else:
-                self.logger.info("키워드 기반 검색 시작")
-                self.driver.get('https://map.naver.com/')
-            time.sleep(2) # 페이지 로딩 대기
+                url = f"https://map.naver.com/p/search/{encoded_query}?c={final_zoom_level:.2f},0,0,0,0,0,dh"
+                time.sleep(2)  # 페이지 로딩 대기
 
-            # 2. 키워드 검색 실행
-            search_result_type = self.search_keyword()
+            self.logger.info(f"[URL 이동] {url}")
+            self.driver.get(url)
+            time.sleep(4.5)
 
-            # 3. 검색 결과에 따라 분기 처리
-            if search_result_type == 'search':
-                self.logger.info("검색 결과: 목록 페이지. 전체 목록 크롤링을 시작합니다.")
-                self.crawl_all_results_in_list()
-            elif search_result_type == 'entry':
+            # 프레임 감지 및 결과 유형 판단
+            iframe_elements = self.driver.find_elements(By.TAG_NAME, "iframe")
+            iframe_ids = [iframe.get_attribute("id") for iframe in iframe_elements]
+
+            if "entryIframe" in iframe_ids:
                 self.logger.info("검색 결과: 단일 상세 페이지. 해당 가게 정보를 크롤링합니다.")
                 self.init_dictionary()
                 self.get_store_details()
-            else: # 'none', 'error', 'unknown'
-                self.logger.warning("검색 결과가 없거나 오류가 발생하여 크롤링을 종료합니다.")
+
+            elif "searchIframe" in iframe_ids:
+                self.logger.info("검색 결과: 목록 페이지. 전체 목록 크롤링을 시작합니다.")
+                self.crawl_all_results_in_list()
+
+            else:
+                # fallback: searchIframe 직접 진입해서 '검색 결과 없음' 여부 확인
+                try:
+                    self.driver.switch_to.frame("searchIframe")
+                    time.sleep(1)
+                    no_result_elem = self.driver.find_element(By.CLASS_NAME, "FYvSc")
+                    no_result_text = no_result_elem.text.strip()
+                    self.logger.info(f"검색 결과 없음 텍스트: {no_result_text}")
+                    if "조건에 맞는 업체가 없습니다" in no_result_text:
+                        self.logger.warning("검색 결과 없음 → 크롤링 중단")
+                        return self.data
+                except Exception:
+                    self.logger.warning("프레임도 없고 결과 없음도 확인 불가 → unknown 상태로 간주")
 
         except Exception as e:
             self.logger.error(f"크롤링 실행 중 심각한 오류 발생: {e}", exc_info=True)
+
         finally:
             self.quit()
             self.logger.info(f"크롤링 작업 완료. 총 {len(self.data)}개 데이터 수집.")
@@ -242,40 +300,40 @@ class StoreCrawler:
             self.logger.error("❌ WebDriver 초기화 실패", exc_info=True)
             return None  # ❗ 실패 시 반드시 None 반환
 
-    def search_keyword(self):  #어떤 Frame으로 넘어가야 하는지 확인하기
-        self.logger.info(f"{self.search_word} 검색어 입력 중...")
-        self.move_to_default_content()
-        time.sleep(1)
-        try:
-            search_box = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".input_search")))
-            self.driver.execute_script("arguments[0].value = '';", search_box)
-            time.sleep(0.5)
-            search_box.send_keys(self.search_word)
-            time.sleep(1)
-            search_box.send_keys(Keys.RETURN)
-            time.sleep(4.5) 
+    # def search_keyword(self):  #어떤 Frame으로 넘어가야 하는지 확인하기
+    #     self.logger.info(f"{self.search_word} 검색어 입력 중...")
+    #     self.move_to_default_content()
+    #     time.sleep(1)
+    #     try:
+    #         search_box = self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, ".input_search")))
+    #         self.driver.execute_script("arguments[0].value = '';", search_box)
+    #         time.sleep(0.5)
+    #         search_box.send_keys(self.search_word)
+    #         time.sleep(1)
+    #         search_box.send_keys(Keys.RETURN)
+    #         time.sleep(4.5) 
 
-            iframe_elements = self.driver.find_elements(By.TAG_NAME, "iframe")
-            iframe_ids = [iframe.get_attribute("id") for iframe in iframe_elements]
+    #         iframe_elements = self.driver.find_elements(By.TAG_NAME, "iframe")
+    #         iframe_ids = [iframe.get_attribute("id") for iframe in iframe_elements]
 
-            if "entryIframe" in iframe_ids:
-                return "entry"
-            elif "searchIframe" in iframe_ids:
-                return "search"
-            else:
-                self.driver.switch_to.frame("searchIframe")
-                time.sleep(1)
-                try:
-                    no_result_elem = self.driver.find_element(By.CLASS_NAME, "FYvSc") # 검색 결과가 없을 때 나타나는 클래스
-                    self.logger.info(f"검색 결과 없음: {no_result_elem.text.strip()}")
-                    if "조건에 맞는 업체가 없습니다" in no_result_elem.text.strip():
-                        return "none"
-                except:
-                    return "search" # 업체없음 문구가 없어도 searchIframe은 있으므로
-            return "unknown"
-        except Exception as e:
-            self.logger.warning(f"❌ 검색어 입력 중 오류 발생: {e}")
-            return "error"
+    #         if "entryIframe" in iframe_ids:
+    #             return "entry"
+    #         elif "searchIframe" in iframe_ids:
+    #             return "search"
+    #         else:
+    #             self.driver.switch_to.frame("searchIframe")
+    #             time.sleep(1)
+    #             try:
+    #                 no_result_elem = self.driver.find_element(By.CLASS_NAME, "FYvSc") # 검색 결과가 없을 때 나타나는 클래스
+    #                 self.logger.info(f"검색 결과 없음: {no_result_elem.text.strip()}")
+    #                 if "조건에 맞는 업체가 없습니다" in no_result_elem.text.strip():
+    #                     return "none"
+    #             except:
+    #                 return "search" # 업체없음 문구가 없어도 searchIframe은 있으므로
+    #         return "unknown"
+    #     except Exception as e:
+    #         self.logger.warning(f"❌ 검색어 입력 중 오류 발생: {e}")
+    #         return "error"
         
     # Iframe 내부에 있을 때, 가장 상위의 frame으로 이동
     def move_to_default_content(self):
@@ -371,7 +429,14 @@ class StoreCrawler:
                 self.store_dict["naver_url"] = ifram_src
 
                 match = re.search(r'/place/(\d+)', ifram_src)
-                self.store_dict["naver_id"] = int(match.group(1)) if match else None
+                current_naver_id = int(match.group(1)) if match else None
+                self.store_dict["naver_id"] = current_naver_id
+
+                # self.existing_naver_ids는 set이므로 O(1) 속도로 매우 빠르게 조회 가능
+                if current_naver_id in self.existing_naver_ids:
+                    self.logger.info(f"이미 크롤링된 매장 ID: {current_naver_id} → 크롤링 중단")
+                    return False
+                
             except TimeoutException:
                 self.logger.warning("❌ entryIframe 로딩 실패 (Timeout)")
                 return False

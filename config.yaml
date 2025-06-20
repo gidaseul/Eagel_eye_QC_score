@@ -3,6 +3,8 @@
 # =======================================================
 # 파이프라인 실행 설정
 # =======================================================
+# 스토리지 모드 선택 할 수 있게 옵션에 설정함.
+storage_mode: 'local'  # 'local' 또는 's3' 중 하나를 선택
 
 # 1. 실행 단계 설정
 # 실행할 파이프라인의 마지막 단계를 지정합니다.
@@ -21,15 +23,42 @@ num_threads: 3
 # false: 브라우저 창을 화면에 표시 (로컬 테스트/디버깅용)
 headless_mode: true
 
-
 # 3. 경로 설정
 # 점수 산정 단계에서 필요한 데이터(매핑 파일, 폴리곤 등)가 위치한 디렉토리
 data_dir: 'data'
-# 모든 결과물이 저장될 최상위 디렉토리
-output_dir: 'results'
 
 
 # 4. 최종 결과 저장 형식
 # 'csv', 'json', 'both' 중 하나를 선택할 수 있습니다.
 output_format: 'json'
+
+
+local_config:
+  # 개별 크롤링 결과가 저장될 상위 폴더입니다.
+  # 예: outputs/2025-06/2025-06-20/....json
+  output_dir: "results"
+  
+  # 통합 마스터 데이터 파일이 저장될 폴더입니다.
+  # 예: total/master_data_20250620150000.parquet
+  total_dir: "total"
+  
+  # total/ 폴더 안에서 마스터 파일을 식별하기 위한 파일명의 시작 부분입니다.
+  # 이 값을 기준으로 배치 작업 시 이전 마스터 파일을 찾아 삭제합니다.
+  master_file_prefix: "master_data"
+
+# --- S3 저장소 설정 ---
+s3_config:
+  bucket_name: "your-s3-bucket-name"
+  
+  # 'S3의 폴더' 개념으로, 개별 결과가 저장될 경로의 시작 부분입니다.
+  # 예: s3://your-bucket/results/2025-06/2025-06-20/....json
+  output_results_prefix: "results/"
+  
+  # 통합 마스터 데이터 파일이 저장될 S3 내 폴더(prefix)입니다.
+  # 예: s3://your-bucket/total/master_data_20250620150000.parquet
+  total_results_prefix: "total/"
+  
+  # S3의 total/ 폴더 안에서 마스터 파일을 식별하기 위한 파일명의 시작 부분입니다.
+  master_file_prefix: "master_data"
+
 # =======================================================
