@@ -18,7 +18,6 @@ import boto3
 
 
 # 기존에 만들었던 파이프라인 모듈들을 import합니다.
-# 이 함수들이 api_server.py와 같은 레벨의 폴더에 있다고 가정합니다.
 from Crawling.naver_crawler import run_naver_crawling
 from Crawling.kakao_crawler import run_kakao_crawling
 from QC_score.score_pipline import run_scoring_pipeline
