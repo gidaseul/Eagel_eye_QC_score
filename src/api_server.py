@@ -68,9 +68,11 @@ class StatusResponse(BaseModel):
     task_id: str
     status: str
     request_details: Optional[Dict[str, Any]] = Field(None, description="최초 요청 파라미터")
-    # ★★★ 두 가지 경로를 모두 옵션으로 포함 -> 로컬 모드와 S3 모드 지원
+    # ★★★ 상세 진행 상황을 위한 필드 추가
+    progress: Optional[Dict[str, str]] = Field(None, description="파이프라인 단계별 진행 상황")
     result_path: Optional[str] = Field(None, description="[로컬 모드] 결과 파일이 저장된 로컬 경로")
     result_url: Optional[str] = Field(None, description="[S3 모드] 결과 파일 다운로드를 위한 임시 URL")
+    error: Optional[str] = None
     error: Optional[str] = None
 
 # --- 3. 핵심 파이프라인 실행 함수 ---
@@ -79,13 +81,19 @@ def execute_pipeline_task(task_id: str, request: PipelineRequest, existing_ids: 
     output_dir = ""
     try:
         tasks_db[task_id] = {
-            "status": "processing: starting",
-            "request_details": request.model_dump()
+            "status": "processing", # 전체 상태는 'processing'으로 유지
+            "request_details": request.model_dump(),
+            "progress": {
+                "네이버 크롤링": "pending",
+                "카카오 크롤링": "pending",
+                "점수 산정": "pending",
+                "결과 저장": "pending"
+            }
         }
         print(f"[{task_id}] 파이프라인 시작: query='{request.query}'")
         
         # 1. Naver Crawling
-        tasks_db[task_id]["status"] = "processing: naver crawling"
+        tasks_db[task_id]["progress"]["네이버 크롤링"] = "running"
         naver_df = run_naver_crawling(
             search_query=request.query,
             latitude=request.latitude,
@@ -95,24 +103,28 @@ def execute_pipeline_task(task_id: str, request: PipelineRequest, existing_ids: 
             existing_naver_ids=existing_ids
         )
         if naver_df.empty: raise ValueError("네이버 크롤링 결과가 없습니다.")
-
+        tasks_db[task_id]["progress"]["네이버 크롤링"] = "completed"
         print(f"[{task_id}] 네이버 크롤링 완료.")
 
         # 2. Kakao Crawling
-        tasks_db[task_id]["status"] = "processing: kakao crawling"
+        tasks_db[task_id]["progress"]["카카오 크롤링"] = "running"
         kakao_df = run_kakao_crawling(
             input_df=naver_df,
             max_threads=config.get('num_threads', 3),
             headless=(not request.show_browser)
         )
+        tasks_db[task_id]["progress"]["카카오 크롤링"] = "completed"
+        print(f"[{task_id}] 카카오 크롤링 완료.")
 
         # 3. Scoring
-        tasks_db[task_id]["status"] = "processing: scoring"
+        tasks_db[task_id]["progress"]["점수 산정"] = "running"
         final_list = run_scoring_pipeline(
             input_data=kakao_df.to_dict('records'),
             data_dir=config.get('data_dir', 'data')
         )
         if not final_list: raise ValueError("점수 산정 결과가 없습니다.")
+        tasks_db[task_id]["progress"]["점수 산정"] = "completed"
+        print(f"[{task_id}] 점수 산정 완료.")
 
         final_df = pd.DataFrame(final_list)
         
@@ -121,6 +133,8 @@ def execute_pipeline_task(task_id: str, request: PipelineRequest, existing_ids: 
         timestamp = now.strftime('%Y%m%d_%H%M%S')
         safe_query_name = re.sub(r'[\\/*?:"<>|]', "", request.query)
         file_name = f"{safe_query_name}_{timestamp}_{task_id[:8]}_{len(final_df)}.json"
+        
+        tasks_db[task_id]["progress"]["결과 저장"] = "running" # 저장 시작
 
         # -- 스토리지 모드에 따른 결과 저장 분기 -- # 
         if request.storage_mode == "s3":
@@ -201,16 +215,39 @@ async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: Ba
     return {"task_id": task_id, "message": "파이프라인 작업이 접수되었습니다. '/pipeline/status/{task_id}'로 상태를 확인하세요."}
 
 
+@app.get("/pipelines/status/{task_id}", response_model=StatusResponse)
+async def get_pipeline_status(task_id: str):
+    """주어진 task_id에 대한 작업 상태와 결과 경로/URL을 반환합니다."""
+    task = tasks_db.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="해당 task_id를 찾을 수 없습니다.")
+
+    response_data = deepcopy(task) # 원본 DB 수정을 방지하기 위해 깊은 복사
+    response_data['task_id'] = task_id
+
+    # S3 모드이고 작업이 완료되었을 경우, 임시 URL(Presigned URL) 생성
+    if STORAGE_MODE == 's3' and task.get("status") == "completed" and "s3_key" in task:
+        s3_config = config['s3_config']
+        s3_client = boto3.client('s3')
+        try:
+            url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': s3_config['bucket_name'], 'Key': task['s3_key']},
+                ExpiresIn=3600  # 1시간 동안 유효한 URL
+            )
+            response_data['result_url'] = url
+        except Exception as e:
+            response_data['error'] = f"S3 URL 생성 실패: {e}"
+
+    return response_data
+
+
 @app.get("/config", response_model=dict)
 async def get_config():
-    """서버의 현재 주요 설정을 확인합니다."""
-    # 민감 정보를 제외하고 현재 활성화된 모드의 설정만 보여주도록 개선
-    active_config = config.get('local_config') if STORAGE_MODE == 'local' else config.get('s3_config')
-    
-    return {
-        "storage_mode": STORAGE_MODE,
-        "active_config": active_config
-    }
+    """서버에 로드된 전체 설정을 확인합니다."""
+    # 민감 정보를 포함할 수 있으므로 주의해서 사용해야 합니다.
+    return config
+
 
 # --- 6. 데이터 통합 수동 실행 API ---
 def consolidation_task_wrapper():
@@ -222,7 +259,7 @@ def consolidation_task_wrapper():
         CONSOLIDATION_IN_PROGRESS = False
         print("데이터 통합 작업 완료. 이제 다음 통합 요청을 받을 수 있습니다.")
 
-@app.post("/admin/run-consolidation", response_model=TaskResponse, status_code=202)
+@app.post("/admin/consolidation", response_model=TaskResponse, status_code=202)
 async def trigger_consolidation_endpoint(background_tasks: BackgroundTasks):
     """데이터 통합 배치 작업을 수동으로 실행시킵니다. (관리자용)"""
     #  함수 내에 'global' 키워드 선언 추가 
