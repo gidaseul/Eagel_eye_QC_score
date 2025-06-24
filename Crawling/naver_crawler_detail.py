@@ -200,7 +200,7 @@ class StoreCrawler:
                 self.move_to_search_iframe()
                 self.logger.info(f"===== {page} 페이지 크롤링 시작 =====")
                 self.scroll_to_end()
-                time.sleep(1.5)
+                time.sleep(2)
                 store_elements_xpath = "//*[@id='_pcmap_list_scroll_container']/ul/li"
                 WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.XPATH, store_elements_xpath)))
                 store_elements = self.driver.find_elements(By.XPATH, store_elements_xpath)
@@ -1229,23 +1229,71 @@ class StoreCrawler:
             self.logger.info(f"'{self.store_dict['name']}' 정보 추가 완료. 현재 수집 개수: {len(self.data)}")
         except Exception as e:
             self.logger.warning(f"❌ DataFrame에 데이터 추가 실패: {e}")
-
-
+    
     def scroll_to_end(self):
-        try:
-            scroll_container_selector = "#_pcmap_list_scroll_container"
-            self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, scroll_container_selector)))
-            
-            last_height = self.driver.execute_script(f"return document.querySelector('{scroll_container_selector}').scrollHeight")
-            while True:
-                self.driver.execute_script(f"document.querySelector('{scroll_container_selector}').scrollTo(0, {last_height});")
-                time.sleep(1.5)
-                new_height = self.driver.execute_script(f"return document.querySelector('{scroll_container_selector}').scrollHeight")
-                if new_height == last_height:
-                    break
-                last_height = new_height
-        except Exception:
-            self.logger.info("스크롤할 매장 목록이 없습니다.")
+            try:
+                scroll_container_selector = "#_pcmap_list_scroll_container"
+                
+                # 💡 회원님의 아이디어를 적용한 핵심 변경 부분
+                # generic 'li' 대신, 실제 목록 아이템을 가리키는 구체적인 클래스로 변경합니다.
+                # 클래스 이름에 공백이 있으므로 '.'으로 연결하여 두 클래스를 모두 가진 요소를 찾습니다.
+                list_item_selector = "li.UEzoS.rTjJo" 
+
+                self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, scroll_container_selector)))
+                self.logger.info(f"하이브리드 스크롤 시작 (타겟 요소: '{list_item_selector}')")
+
+                last_height = 0
+                last_item_count = 0
+                patience = 3
+                no_change_streak = 0
+
+                # --- 1단계: 빠른 스크롤 ---
+                self.logger.info("==> 1단계: 빠른 스크롤을 시작합니다.")
+                while no_change_streak < patience:
+                    self.driver.execute_script(f"document.querySelector('{scroll_container_selector}').scrollTo(0, document.querySelector('{scroll_container_selector}').scrollHeight);")
+                    time.sleep(2.0)
+
+                    current_height = self.driver.execute_script(f"return document.querySelector('{scroll_container_selector}').scrollHeight")
+                    # 변경된 선택자로 아이템 개수를 셉니다.
+                    current_item_count = len(self.driver.find_elements(By.CSS_SELECTOR, list_item_selector))
+
+                    if current_height == last_height and current_item_count == last_item_count:
+                        no_change_streak += 1
+                        self.logger.info(f"빠른 스크롤 중 변경 없음 ({no_change_streak}/{patience})")
+                    else:
+                        no_change_streak = 0
+                        self.logger.info(f"빠른 스크롤로 새 콘텐츠 감지됨 (높이: {current_height}, 아이템: {current_item_count})")
+                    
+                    last_height = current_height
+                    last_item_count = current_item_count
+                
+                self.logger.info("1단계: 빠른 스크롤 완료. 최종 확인을 위해 정밀 스캔을 1회 실행합니다.")
+
+                # --- 2단계: 정밀 스캔 (마지막 1회) ---
+                self.logger.info("==> 2단계: 최종 정밀 스캔을 시작합니다.")
+                
+                scroll_metrics = self.driver.execute_script(f"""
+                    const sc = document.querySelector('{scroll_container_selector}');
+                    return {{ scrollHeight: sc.scrollHeight, clientHeight: sc.clientHeight }};
+                """)
+                
+                current_scroll_pos = 0
+                while current_scroll_pos < scroll_metrics['scrollHeight']:
+                    self.driver.execute_script(f"document.querySelector('{scroll_container_selector}').scrollTo(0, {current_scroll_pos});")
+                    time.sleep(0.3)
+                    current_scroll_pos += scroll_metrics['clientHeight']
+
+                time.sleep(2.0)
+                
+                # 변경된 선택자로 최종 아이템 개수를 셉니다.
+                final_item_count = len(self.driver.find_elements(By.CSS_SELECTOR, list_item_selector))
+                self.logger.info(f"스크롤 최종 완료. 총 {final_item_count}개의 아이템 로드를 확인했습니다.")
+
+            except TimeoutException:
+                self.logger.info("스크롤할 매장 목록이 로드되지 않았습니다.")
+            except Exception as e:
+                self.logger.warning(f"스크롤 중 예상치 못한 오류 발생: {e}", exc_info=True)
+
 
     def move_to_search_iframe(self):
         try:
@@ -1260,15 +1308,41 @@ class StoreCrawler:
     def move_to_next_page(self):
         try:
             self.move_to_search_iframe()
-            next_page_button = self.driver.find_element(By.XPATH, "//a[contains(@class, 'mBN2s') and span[text()='다음페이지']]")
-            if next_page_button.get_attribute("aria-disabled") == "true":
-                return False
-            else:
+
+            # 1. 다음 페이지 '번호' 버튼을 찾아 클릭 시도
+            try:
+                # 현재 활성화된 페이지 번호 찾기 (선택자가 불안정할 수 있음을 인지)
+                current_page_elem = self.driver.find_element(By.CSS_SELECTOR, "a.mBN2s[aria-current='page'], a.mBN2s.qxokY") # aria-current='page'가 더 안정적일 수 있습니다. 실제 HTML 구조를 확인해보세요.
+                current_page_num = int(current_page_elem.text.strip())
+                next_page_num = current_page_num + 1
+
+                # 다음 페이지 번호를 가진 요소 찾기
+                # XPath를 사용해 text가 정확히 일치하는 요소를 찾습니다.
+                next_page_button = self.driver.find_element(By.XPATH, f"//a[@class='mBN2s' and text()='{next_page_num}']")
                 next_page_button.click()
                 time.sleep(2)
+                self.logger.info(f"{next_page_num} 페이지로 이동했습니다.")
                 return True
-        except NoSuchElementException:
-            self.logger.info("다음 페이지 버튼이 없어 마지막 페이지로 간주합니다.")
+            except NoSuchElementException:
+                # 다음 페이지 '번호'가 보이지 않으면, '다음 화살표' 버튼 클릭을 시도합니다.
+                self.logger.info("다음 페이지 번호가 보이지 않아, 다음 화살표 버튼 클릭을 시도합니다.")
+                pass # 아래의 화살표 버튼 로직으로 넘어갑니다.
+
+            # 2. '다음 화살표' 버튼을 찾아 클릭 시도
+            try:
+                # class가 'eUTV2'이고 비활성화되지 않은(aria-disabled='false') 버튼을 찾습니다.
+                next_arrow_button = self.driver.find_element(By.XPATH, "//a[@class='eUTV2' and @aria-disabled='false']")
+                next_arrow_button.click()
+                time.sleep(2)
+                self.logger.info("다음 화살표 버튼을 클릭해 페이지 블록을 넘겼습니다.")
+                return True
+            except NoSuchElementException:
+                # 화살표 버튼도 없으면 마지막 페이지입니다.
+                self.logger.info("다음 페이지 번호와 다음 화살표 버튼이 모두 없어 마지막 페이지로 간주합니다.")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"페이지 이동 중 에러 발생: {e}")
             return False
 
     def quit(self):
