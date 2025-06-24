@@ -2,7 +2,6 @@
 .config.env
 
 # 작업 결과
-data/
 logs/
 results/
 
