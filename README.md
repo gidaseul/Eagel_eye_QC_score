@@ -1,14 +1,7 @@
-<img src="" alt="배너" width="100%" />
-
 <br/>
 <br/>
 
 # 0. Getting Started (시작하기)
-
-**UI 앱 실행 방법**
-```bash
-streamlit run src/ui_app.py
-```
 
 **API 서버 실행 방법**
 ```bash
@@ -32,12 +25,17 @@ uvicorn src/api_server:app --reload
 
 - **네이버 지도**
   - **수집하는 내용**: 매장 이름, 주소, 전화번호, GPS 정보(위도, 경도) 등의 기본 정보. 방문자 리뷰 수, 블로그 리뷰 수, 리뷰 키워드 및 개수, 테마 키워드(분위기, 주제, 목적) 등의 인기도 정보. 인스타그램 링크, 게시물 수, 팔로워 수. 지하철역과의 거리, TV 방영 여부, 주차 가능 여부, 서울 미쉐린 가이드 선정 여부, 20-30대 방문 비율, 성별 비율, 활발한 운영 지표. 메뉴 목록(이름, 가격, 대표 메뉴 여부, TV 방송 여부, 메뉴 소개). 개별 리뷰 정보(날짜, 내용).
+  - <img src="![image](https://github.com/user-attachments/assets/5b7156b9-6bd5-48e7-839b-b2c06dce7ad8)
+" alt="네이버 지도" width="100%" />
 
 - **카카오 지도**
   - **수집하는 내용**: 전체 별점(`kakao_score`), 후기 개수(`kakao_review`), 맛(`kakao_taste`), 가성비(`kakao_value`), 친절도(`kakao_kindness`), 분위기(`kakao_mood`), 주차 편의성(`kakao_parking`) 점수.
+  - <img src="![image](https://github.com/user-attachments/assets/7eb1d9e5-1f74-42e3-a136-f36f114ce93c)" alt="카카오 지도" width="100%" />
 
 - **LLM (구글 Gemini)**
   - 네이버, 카카오 데이터를 기반으로 프롬프트 가이드라인을 통해 데이트팝의 제휴 기준 충족 여부를 판별하고 점수 및 산출 근거를 제공합니다. 특히 단순 평점으로 파악하기 어려운 리뷰의 잠재 의미와 맥락 해석을 위한 **의미론적 분석**을 수행합니다.
+  -   - <img src="![image](https://github.com/user-attachments/assets/67b6dde0-9270-480d-82a9-9506f41b86d4)
+" alt="구글 Gemini" width="100%" />
 
 <br/>
 <br/>
