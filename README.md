@@ -25,33 +25,29 @@ uvicorn src/api_server:app --reload
 
 - **네이버 지도**
   - **수집하는 내용**: 매장 이름, 주소, 전화번호, GPS 정보(위도, 경도) 등의 기본 정보. 방문자 리뷰 수, 블로그 리뷰 수, 리뷰 키워드 및 개수, 테마 키워드(분위기, 주제, 목적) 등의 인기도 정보. 인스타그램 링크, 게시물 수, 팔로워 수. 지하철역과의 거리, TV 방영 여부, 주차 가능 여부, 서울 미쉐린 가이드 선정 여부, 20-30대 방문 비율, 성별 비율, 활발한 운영 지표. 메뉴 목록(이름, 가격, 대표 메뉴 여부, TV 방송 여부, 메뉴 소개). 개별 리뷰 정보(날짜, 내용).
-  - <img src="https://github.com/user-attachments/assets/5b7156b9-6bd5-48e7-839b-b2c06dce7ad8" alt="네이버 지도" width="100" />
+  - <img src="https://github.com/user-attachments/assets/5b7156b9-6bd5-48e7-839b-b2c06dce7ad8" alt="네이버 지도" width="300" />
 
 - **카카오 지도**
   - **수집하는 내용**: 전체 별점(`kakao_score`), 후기 개수(`kakao_review`), 맛(`kakao_taste`), 가성비(`kakao_value`), 친절도(`kakao_kindness`), 분위기(`kakao_mood`), 주차 편의성(`kakao_parking`) 점수.
-  - <img src="https://github.com/user-attachments/assets/7eb1d9e5-1f74-42e3-a136-f36f114ce93c" alt="카카오 지도" width="100" />
+  - <img src="https://github.com/user-attachments/assets/7eb1d9e5-1f74-42e3-a136-f36f114ce93c" alt="카카오 지도" width="300" />
 
 - **LLM (구글 Gemini)**
   - 네이버, 카카오 데이터를 기반으로 프롬프트 가이드라인을 통해 데이트팝의 제휴 기준 충족 여부를 판별하고 점수 및 산출 근거를 제공합니다. 특히 단순 평점으로 파악하기 어려운 리뷰의 잠재 의미와 맥락 해석을 위한 **의미론적 분석**을 수행합니다.
-  -   - <img src="https://github.com/user-attachments/assets/67b6dde0-9270-480d-82a9-9506f41b86d4" alt="구글 Gemini" width="100" />
+  -   - <img src="https://github.com/user-attachments/assets/67b6dde0-9270-480d-82a9-9506f41b86d4" alt="구글 Gemini" width="300" />
 
 <br/>
 <br/>
 
 # 3. 코드 동작 설명서
 
-- **UI 앱 실행 방법**: `streamlit run src/ui_app.py`
-  - 사용자는 웹 UI를 통해 CSV 업로드 또는 텍스트 입력으로 가게 목록을 입력할 수 있습니다.
-  - '파이프라인 실행' 버튼 클릭 시, 백엔드 API 서버에 작업을 요청하고 작업 ID를 발급받습니다.
-  - UI는 주기적으로 API 서버에 작업 상태를 질의하여 `processing: naver crawling -> processing: kakao crawling -> processing: scoring -> completed` 순으로 진행 상황을 표시합니다.
-  - 작업 완료 후 드롭다운에서 특정 가게를 선택하여 JSON 데이터를 확인하거나, 전체 결과를 CSV, Excel, JSON으로 다운로드할 수 있습니다.
-
 - **API 서버 실행 방법**: `uvicorn src/api_server:app --reload`
   - API 서버는 `http://127.0.0.1:8000`에서 실행되며, `http://127.0.0.1:8000/docs`에서 Swagger UI로 API 문서를 확인할 수 있습니다.
   - **`POST /pipeline/run`**: 파이프라인 실행을 요청하고 작업 ID를 반환. 파라미터로 `storage_mode`, `query`, `latitude`, `longitude`, `zoom_level`, `show_browser` 등을 사용합니다.
+  - **`POST /pipeline/target-run`**: 특정 매장명과 주소를 바탕으로 일치하는 것을 선택하기 위한 파이프라인 실행을 요청하고 작업 ID를 반환. 파라미터로 `storage_mode`, `query`, `latitude`, `longitude`, `zoom_level`, `show_browser` 등을 사용합니다.
   - **`GET /pipelines/status/{task_id}`**: 특정 작업 ID의 상태, 진행 단계, 결과 경로, 오류 메시지 등을 조회합니다.
   - **`GET /config`**: 서버 로드 설정 전체를 조회합니다.
-  - **`POST /admin/consolidation`**: 저장된 각 파일을 병합하여 최신 마스터 파일로 만드는 배치 작업을 실행합니다.
+  - **`POST /admin/consolidation`**: 저장된 각 파일을 병합하여 최신 마스터 파일로 만드는 배치 작업을 실행합니다. 이때 master 파일을 병합한 것을 기준으로 파이프라인이 실행될 때 중복된 것을 확인하며 실행을 합니다. (NAVER_ID를 기준으로 중복 체크 확인 합니다.)
+
 
 <br/>
 <br/>
@@ -72,7 +68,6 @@ uvicorn src/api_server:app --reload
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FastAPI    | 비동기 API 서버. `BackgroundTasks`로 장기 작업을 처리하여 즉시 작업 접수 응답과 작업 ID를 반환하고, 실제 작업은 백그라운드에서 수행. HTTP 타임아웃 방지.                                                                  |
 | Uvicorn    | FastAPI용 ASGI 서버.                                                                                                                                                                                                       |
-| Streamlit  | 프론트엔드 복잡도 없이 Python만으로 UI 구축. 파일 업로드, 실시간 상태 표시, 결과 다운로드 기능 제공.                                                                                   |
 | Docker     | 모든 환경을 이미지로 패키징하여 의존성 문제 해결 및 배포 용이성 확보.                                                                                                               |
 | Docker Compose | Nginx, Gunicorn/FastAPI 등 여러 컨테이너를 통합 관리.                                                                                                                               |
 | Gunicorn   | FastAPI용 WSGI 서버.                                                                                                                                                                                                       |
@@ -128,7 +123,6 @@ project/
 ├── QC_score/
 │   ├── polygon_update.ipynb
 │   ├── score_pipline.py
-│   └── score_pipline(초기에 사용하던 원본).py
 ├── Score/
 │   ├── LLM_gemini.ipynb
 │   └── QC_Center_score.ipynb
