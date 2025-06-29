@@ -1,119 +1,157 @@
-📖 상점 데이터 수집 및 분석 자동화 파이프라인
-<여기에 프로젝트를 가장 잘 나타내는 아키텍처 다이어그램 또는 UI 스크린샷 삽입 (예시: )>
+<img src="" alt="배너" width="100%" />
 
-UI 앱 실행 방법: streamlit run src/ui_app.py
+<br/>
+<br/>
 
-API 서버 실행 방법: uvicorn src.api_server:app --reload
+# 0. Getting Started (시작하기)
 
-프로젝트 관리: <여기에 깃허브 Issues 링크 삽입>, <여기에 깃허브 Project 링크 삽입>
+**UI 앱 실행 방법**
+```bash
+streamlit run src/ui_app.py
+```
 
-1. 프로젝트 소개
-이 프로젝트는 사용자가 제공하는 가게 목록을 기반으로, **네이버 지도와 카카오맵에서 관련 데이터를 자동으로 수집(Crawling)**하고, Google Gemini API를 활용하여 데이터를 분석 및 점수화하는 완전 자동화 파이프라인입니다.
+**API 서버 실행 방법**
+```bash
+uvicorn src/api_server:app --reload
+```
 
-사용자는 웹 UI를 통해 간편하게 가게 목록을 파일로 업로드하거나 직접 입력하여 파이프라인을 실행할 수 있습니다.
+<br/>
+<br/>
 
-파이프라인의 실행 상태를 실시간으로 모니터링하고, 완료된 결과는 UI 상에서 가게별로 상세히 탐색하거나 CSV, Excel, JSON 등 원하는 형식으로 다운로드할 수 있습니다.
+# 1. Project Overview (프로젝트 개요)
 
-전체 시스템은 Docker를 통해 컨테이너화되어, 어떤 환경에서든 쉽고 안정적으로 배포 및 실행이 가능하도록 설계되었습니다.
+- 프로젝트 이름: 매의 눈 프로젝트
+- 프로젝트 설명: 본 프로젝트는 영업팀 및 QC 검수팀의 제휴 제안 매장 선별의 편의성을 위해 네이버 지도와 카카오맵 데이터를 수집합니다. 이후 구글의 Gemini 모델을 활용하여 데이트팝의 제휴 가능한 매장의 기준을 판단하여 QC Score를 산출합니다. (Notion에 자세히 공유되어 있습니다.)
+  - **프로젝트 진행 기간**: 2025.03.01 ~ 06.30
+  - **목표**: LLM 기반의 분석 파이프라인을 통해 네이버와 카카오맵의 분산된 데이터를 하나의 정량적 QC 스코어로 통합하여, 자동화된 1차 필터링 시스템을 구축하고 업무 리소스 부담을 줄이는 것을 목표로 합니다.
 
-2. 개발자
-<여기에 성함 입력>
+<br/>
+<br/>
 
-  @<여기에 깃허브 ID 입력>
+# 2. 전체 동작 파이프라인
 
-3. 개발 환경 및 주요 기술
-언어: Python
+- **네이버 지도**
+  - **수집하는 내용**: 매장 이름, 주소, 전화번호, GPS 정보(위도, 경도) 등의 기본 정보. 방문자 리뷰 수, 블로그 리뷰 수, 리뷰 키워드 및 개수, 테마 키워드(분위기, 주제, 목적) 등의 인기도 정보. 인스타그램 링크, 게시물 수, 팔로워 수. 지하철역과의 거리, TV 방영 여부, 주차 가능 여부, 서울 미쉐린 가이드 선정 여부, 20-30대 방문 비율, 성별 비율, 활발한 운영 지표. 메뉴 목록(이름, 가격, 대표 메뉴 여부, TV 방송 여부, 메뉴 소개). 개별 리뷰 정보(날짜, 내용).
 
-주요 라이브러리:
+- **카카오 지도**
+  - **수집하는 내용**: 전체 별점(`kakao_score`), 후기 개수(`kakao_review`), 맛(`kakao_taste`), 가성비(`kakao_value`), 친절도(`kakao_kindness`), 분위기(`kakao_mood`), 주차 편의성(`kakao_parking`) 점수.
 
-Data Handling: Pandas
+- **LLM (구글 Gemini)**
+  - 네이버, 카카오 데이터를 기반으로 프롬프트 가이드라인을 통해 데이트팝의 제휴 기준 충족 여부를 판별하고 점수 및 산출 근거를 제공합니다. 특히 단순 평점으로 파악하기 어려운 리뷰의 잠재 의미와 맥락 해석을 위한 **의미론적 분석**을 수행합니다.
 
-Web Crawling: Selenium
+<br/>
+<br/>
 
-AI / LLM: Google Generative AI (Gemini)
+# 3. 코드 동작 설명서
 
-Web API Server: FastAPI, Uvicorn
+- **UI 앱 실행 방법**: `streamlit run src/ui_app.py`
+  - 사용자는 웹 UI를 통해 CSV 업로드 또는 텍스트 입력으로 가게 목록을 입력할 수 있습니다.
+  - '파이프라인 실행' 버튼 클릭 시, 백엔드 API 서버에 작업을 요청하고 작업 ID를 발급받습니다.
+  - UI는 주기적으로 API 서버에 작업 상태를 질의하여 `processing: naver crawling -> processing: kakao crawling -> processing: scoring -> completed` 순으로 진행 상황을 표시합니다.
+  - 작업 완료 후 드롭다운에서 특정 가게를 선택하여 JSON 데이터를 확인하거나, 전체 결과를 CSV, Excel, JSON으로 다운로드할 수 있습니다.
 
-Web UI: Streamlit
+- **API 서버 실행 방법**: `uvicorn src/api_server:app --reload`
+  - API 서버는 `http://127.0.0.1:8000`에서 실행되며, `http://127.0.0.1:8000/docs`에서 Swagger UI로 API 문서를 확인할 수 있습니다.
+  - **`POST /pipeline/run`**: 파이프라인 실행을 요청하고 작업 ID를 반환. 파라미터로 `storage_mode`, `query`, `latitude`, `longitude`, `zoom_level`, `show_browser` 등을 사용합니다.
+  - **`GET /pipelines/status/{task_id}`**: 특정 작업 ID의 상태, 진행 단계, 결과 경로, 오류 메시지 등을 조회합니다.
+  - **`GET /config`**: 서버 로드 설정 전체를 조회합니다.
+  - **`POST /admin/consolidation`**: 저장된 각 파일을 병합하여 최신 마스터 파일로 만드는 배치 작업을 실행합니다.
 
-인프라 및 배포: Docker, Docker Compose, Gunicorn, Nginx
+<br/>
+<br/>
 
-버전 및 이슈 관리: Git, GitHub, GitHub Issues, GitHub Project
+# 4. 기술 스택
 
-협업 툴: <사용하신 협업 툴(예: Discord, Notion)을 여기에 작성하세요>
+## 4.1 Language (Python)
 
-4. 채택한 개발 기술과 아키텍처 전략
-Python 기반의 풀스택 파이프라인
-데이터 수집, 처리, 분석부터 API 서버, UI 프론트엔드까지 모든 과정을 Python 생태계 안에서 해결하여 개발 효율성을 극대화했습니다.
+| 언어   | 설명                                                                 |
+| ------ | -------------------------------------------------------------------- |
+| Python | 데이터 수집, 처리, 분석, API 서버, UI 프론트엔드까지 Python으로 통일 |
 
-Pandas를 사용하여 데이터 처리의 표준을 지켰고, Selenium으로 동적인 웹 페이지의 데이터를 안정적으로 수집했습니다.
+<br/>
 
-비동기 API 서버 (FastAPI & Uvicorn)
-크롤링과 LLM 호출 등 몇 분에서 몇 시간까지 걸릴 수 있는 **장기 실행 작업(Long-running task)**을 처리하기 위해 동기 방식이 아닌 비동기 API 서버를 채택했습니다.
+## 4.2 Backend
 
-사용자가 API를 요청하면, **FastAPI의 BackgroundTasks**를 이용해 즉시 '작업 접수' 응답과 '작업 ID'를 반환합니다. 실제 무거운 작업은 백그라운드에서 처리하여 HTTP 타임아웃 문제를 원천적으로 해결했습니다.
+| 기술       | 설명                                                                                                                                                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FastAPI    | 비동기 API 서버. `BackgroundTasks`로 장기 작업을 처리하여 즉시 작업 접수 응답과 작업 ID를 반환하고, 실제 작업은 백그라운드에서 수행. HTTP 타임아웃 방지.                                                                  |
+| Uvicorn    | FastAPI용 ASGI 서버.                                                                                                                                                                                                       |
+| Streamlit  | 프론트엔드 복잡도 없이 Python만으로 UI 구축. 파일 업로드, 실시간 상태 표시, 결과 다운로드 기능 제공.                                                                                   |
+| Docker     | 모든 환경을 이미지로 패키징하여 의존성 문제 해결 및 배포 용이성 확보.                                                                                                               |
+| Docker Compose | Nginx, Gunicorn/FastAPI 등 여러 컨테이너를 통합 관리.                                                                                                                               |
+| Gunicorn   | FastAPI용 WSGI 서버.                                                                                                                                                                                                       |
+| Nginx      | 리버스 프록시로 사용되어 안정성과 성능 확보.                                                                                                                                        |
+| Google Generative AI (Gemini) | 메뉴 카테고리 판단, 의미론적 해석 기반 분석 및 점수화에 사용.                                                                                              |
+| Pandas     | 데이터 핸들링 표준 라이브러리.                                                                                                                                                       |
+| Selenium   | 동적 웹 페이지 크롤링.                                                                                                                                                               |
+| RapidFuzz  | 문자열 유사도 계산.                                                                                                                                                                  |
+| Levenshtein | 문자열 편집 거리 계산.                                                                                                                                                             |
+| Shapely    | 지리 공간 데이터 Polygon 처리 및 분석.                                                                                                                                            |
+| boto3      | AWS S3 파일 저장 및 다운로드 주소 반환.                                                                                                                                             |
+| python-dotenv | 환경 변수 관리.                                                                                                                                                                    |
 
-사용자는 발급받은 작업 ID를 통해 별도의 상태 확인 API를 호출하여, 파이프라인의 진행 상황을 실시간으로 모니터링하고 최종 결과를 얻을 수 있습니다.
+<br/>
 
-파이썬 기반의 신속한 UI 개발 (Streamlit)
-복잡한 프론트엔드 기술(React, Javascript 등) 학습 없이, 오직 파이썬 코드만으로 데이터와 상호작용하는 웹 UI를 신속하게 구축하기 위해 Streamlit을 사용했습니다.
+## 4.3 Cooperation
 
-파일 업로드, 텍스트 입력, 실시간 상태 업데이트, 결과 데이터 표시 및 다운로드 등 사용자가 파이프라인과 상호작용하는 데 필요한 모든 기능을 구현했습니다.
+| 툴      | 설명                                                                                                                                                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Git     | 분산 버전 관리 시스템. <img src="https://github.com/user-attachments/assets/483abc38-ed4d-487c-b43a-3963b33430e6" alt="git" width="100" /> |
+| GitHub  | Git 기반 웹 호스팅 서비스. Issues, Projects 기능으로 버전 관리 및 협업 진행.                                                 |
+| Notion  | 협업 툴. <img src="https://github.com/user-attachments/assets/34141eb9-deca-416a-a83f-ff9543cc2f9a" alt="Notion" width="100" /> |
+| Discord | <!-- TODO: 작성 -->                                                                                                           |
 
-컨테이너화를 통한 배포 용이성 (Docker & Docker Compose)
-모든 파이썬 라이브러리와 애플리케이션을 Docker 이미지로 패키징하여, "내 컴퓨터에서는 되는데, 서버에서는 안 돼요"와 같은 환경 의존성 문제를 해결했습니다.
+<br/>
 
-Docker Compose를 도입하여 Nginx(리버스 프록시), Gunicorn/FastAPI(애플리케이션 서버) 등 여러 서비스 컨테이너를 단 하나의 docker-compose.yml 파일로 정의하고, docker-compose up 명령어 하나로 전체 서비스를 안정적으로 실행할 수 있는 확장성 있는 아키텍처를 설계했습니다.
+# 5. Project Structure (프로젝트 구조)
 
-5. 파이프라인 기능
-[데이터 입력 및 파이프라인 실행]
-사용자는 사이드바에서 CSV 파일 업로드 또는 텍스트 직접 입력 방식을 선택할 수 있습니다.
+```plaintext
+project/
+├── .gitignore               # Git 무시 파일 목록
+├── README.md                # 프로젝트 개요 및 사용법
+├── batch_consolidate.py     # 수집 데이터 통합 배치 스크립트
+├── config.yaml              # 프로젝트 설정 파일
+├── docker-compose.yml       # Docker Compose 설정
+├── main_pipeline.py         # 파이프라인 실행 메인 스크립트
+├── requirements.txt         # Python 종속성 목록
+├── Crawling/                # 크롤러 관련 소스 코드
+│   ├── kakao_crawler.py
+│   ├── naver_crawler.py
+│   ├── naver_crawler_detail.py
+│   ├── naver_crawler_target.py
+│   └── utils/
+│       ├── check_franchise.py
+│       ├── convert_str_to_number.py
+│       ├── extract_store_info.py
+│       ├── get_instagram_link.py
+│       ├── haversine.py
+│       ├── is_within_date.py
+│       ├── load_bluer.py
+│       ├── logger_utils.py
+│       └── master_loader.py
+├── QC_score/
+│   ├── polygon_update.ipynb
+│   ├── score_pipline.py
+│   └── score_pipline(초기에 사용하던 원본).py
+├── Score/
+│   ├── LLM_gemini.ipynb
+│   └── QC_Center_score.ipynb
+└── src/
+    ├── api_server.py
+    └── ui_app.py
+```
 
-입력이 완료되면 '파이프라인 실행' 버튼이 활성화되고, 클릭 시 백엔드 API 서버에 작업을 요청하고 고유한 작업 ID를 발급받습니다.
+<br/>
+<br/>
 
-<여기에 Streamlit UI의 데이터 입력 화면 스크린샷 또는 GIF 삽입 (예시: )>
+# 6. 브랜치 설명 (Branch Strategy)
 
-[실시간 상태 모니터링]
-작업이 접수되면, UI는 주기적으로 API 서버에 현재 작업 상태를 문의하여 사용자에게 보여줍니다.
+- **Main Branch**
+  - 이전 프로젝트의 브랜치로, 기준점 없이 인기도 기반 유사도 측정으로 매장을 선별.
+  - 모든 배포는 이 브랜치에서 진행.
 
-processing: naver crawling -> processing: kakao crawling -> processing: scoring -> completed 와 같이 단계별 진행 상황을 실시간으로 확인할 수 있습니다.
+- **Pipeline Branch**
+  - 현재 FastAPI 기반의 새 스코어 예측 파이프라인 설계가 진행되는 브랜치.
 
-<여기에 파이프라인 실행 중 상태가 변경되는 화면 스크린샷 또는 GIF 삽입 (예시: )>
-
-[결과 확인 및 다운로드]
-작업이 완료되면, 사용자는 드롭다운 메뉴에서 특정 가게를 선택하여 모든 수집 및 분석 데이터를 JSON 형식으로 상세히 확인할 수 있습니다.
-
-상세 정보 확인과 별개로, 전체 결과 데이터를 CSV, Excel, JSON 세 가지 형식 중 원하는 대로 다운로드할 수 있습니다.
-
-<여기에 결과 확인 및 다운로드 UI 스크린샷 또는 GIF 삽입 (예시: )>
-
-6. 트러블 슈팅
-ModuleNotFoundError 및 ImportError 해결:
-
-파이썬 스크립트가 패키지 형태로 구성될 때 발생하는 모듈 경로 문제를 해결하기 위해, from .module import ... 와 같은 명시적 상대 경로 임포트를 적용하여 모듈 간의 의존성을 명확히 했습니다.
-
-TypeError: unexpected keyword argument 해결:
-
-파이프라인을 모듈화하는 리팩토링 과정에서 발생한 함수 정의와 호출 간의 인자 불일치 문제를 찾아내고, 함수의 시그니처를 통일하여 해결했습니다.
-
-CSV 파일 한글 깨짐 문제:
-
-Streamlit UI에서 다운로드한 CSV 파일을 Excel에서 열 때 한글이 깨지는 현상을 발견했습니다. df.to_csv() 함수에 encoding='utf-8-sig' 옵션을 적용하여, 파일 맨 앞에 BOM(Byte Order Mark)을 추가함으로써 Excel이 UTF-8 인코딩을 올바르게 인식하도록 수정했습니다.
-
-UI 데이터 타입 오류 (ValueError: The truth value of an array is ambiguous):
-
-API를 통해 전달받은 데이터 중 일부(menu_list 등)가 이미 리스트 객체임에도 불구하고, 문자열을 변환하는 함수가 적용되면서 발생한 오류를 확인했습니다. isinstance(x, str)로 타입을 먼저 확인하고, 문자열인 경우에만 try-except 구문으로 안전하게 ast.literal_eval을 실행하도록 데이터 파싱 함수를 수정하여 안정성을 확보했습니다.
-
-Streamlit 상태 유지 문제:
-
-다운로드 버튼 클릭 시 결과 화면이 사라지는 문제를 해결하기 위해, st.session_state를 사용하여 파이프라인의 최종 결과를 세션 상태에 저장했습니다. 이를 통해 사용자의 상호작용(Rerun)이 발생해도 결과 데이터가 유지되도록 UI 로직을 개선했습니다.
-
-7. 개선 목표
-비동기 작업 큐 도입: 현재 API 서버의 BackgroundTasks로 구현된 비동기 로직을, 대규모 요청 처리에 더 적합한 Celery와 Redis 기반의 전문적인 작업 큐(Task Queue) 시스템으로 전환하여 API 서버와 실제 작업자(Worker)를 완전히 분리하고 확장성을 높일 예정입니다.
-
-결과 데이터베이스 연동: 현재 메모리에 저장되는 작업 결과 및 상태를 Redis나 PostgreSQL 같은 외부 데이터베이스에 영구적으로 저장하여, 서버가 재시작되어도 작업 내역이 유실되지 않도록 개선할 예정입니다.
-
-CI/CD 파이프라인 구축: GitHub Actions를 이용하여, 코드가 업데이트될 때마다 자동으로 테스트, 도커 이미지 빌드, 서버 배포가 이루어지는 CI/CD(지속적 통합/지속적 배포) 파이프라인을 구축할 계획입니다.
-
-8. 프로젝트 후기
-<여기에 이번 프로젝트를 진행하면서 느낀 점, 배운 점, 아쉬웠던 점 등 자유로운 후기를 작성하세요. 혼자 진행하셨지만, 어떤 부분이 가장 어려웠고 어떻게 해결했는지, 어떤 성취감을 느꼈는지 등을 기록하면 좋은 회고가 될 것입니다.> (이건 나중에 내가 원할 때 수정해서 사진과 함께 첨부할 예정)
+<br/>
+<br/>
