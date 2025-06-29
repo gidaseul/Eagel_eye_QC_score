@@ -18,7 +18,7 @@ import boto3
 
 
 # 기존에 만들었던 파이프라인 모듈들을 import합니다.
-from Crawling.naver_crawler import run_naver_crawling
+from Crawling.naver_crawler import run_naver_crawling, run_target_naver_crawling
 from Crawling.kakao_crawler import run_kakao_crawling
 from QC_score.score_pipline import run_scoring_pipeline
 from Crawling.utils.master_loader import load_ids_from_master_data
@@ -57,7 +57,21 @@ class PipelineRequest(BaseModel): # 입력 값
     query: str = Field(..., description="크롤링할 검색어 (필수)", example="성수동 카페")
     latitude: Optional[float] = Field(None, description="검색 기준점 위도 (선택)", example=37.544)
     longitude: Optional[float] = Field(None, description="검색 기준점 경도 (선택)", example=127.044)
-    zoom_level: Optional[int] = Field(None, description="지도 확대 레벨(기본 값 15) (선택)") # [신규] zoom_level 필드 추가
+    zoom_level: Optional[int] = Field(None, description="지도 확대 레벨(기본 값 15) (선택)", example=15) # [신규] zoom_level 필드 추가
+    show_browser: bool = Field(False, description="크롤링 브라우저 창 표시 여부 (디버깅용)")
+
+class TargetPipelineRequest(BaseModel): # 입력 값
+    storage_mode: str = Field(
+        default=STORAGE_MODE,
+        description="스토리지 모드 (로컬 또는 S3)",
+        example="local or s3"
+    )
+    # 가게 이름과 주소를 함께 받으면 더 정확한 검색이 가능합니다.
+    query: str = Field(..., description="크롤링할 검색어 (필수)", example="성수동 카페")
+    address: str = Field(..., description="크롤링할 가게의 정확한 주소(필수)", example="강남구")
+    latitude: Optional[float] = Field(None, description="검색 기준점 위도 (선택)", example=37.544)
+    longitude: Optional[float] = Field(None, description="검색 기준점 경도 (선택)", example=127.044)
+    zoom_level: Optional[int] = Field(None, description="지도 확대 레벨(기본 값 15) (선택)", example=15) # [신규] zoom_level 필드 추가
     show_browser: bool = Field(False, description="크롤링 브라우저 창 표시 여부 (디버깅용)")
 
 class TaskResponse(BaseModel): # 작업 응답 형식
@@ -76,6 +90,7 @@ class StatusResponse(BaseModel):
     error: Optional[str] = None
 
 # --- 3. 핵심 파이프라인 실행 함수 ---
+# 일반 파이프라인 실행 함수
 def execute_pipeline_task(task_id: str, request: PipelineRequest, existing_ids: set):
     """오래 걸리는 전체 파이프라인 로직을 수행하는 함수 (백그라운드 실행용)"""
     output_dir = ""
@@ -172,6 +187,107 @@ def execute_pipeline_task(task_id: str, request: PipelineRequest, existing_ids: 
                 f.write(f"Error: {error_message}\n\n")
                 f.write(traceback.format_exc())
 
+# 타겟 파이프라인 실행 함수
+def execute_target_pipeline_task(task_id: str, request: TargetPipelineRequest, existing_ids: set):
+    """단일 타겟 매장에 대한 파이프라인 로직을 수행하는 함수 (백그라운드 실행용)"""
+    output_dir = ""
+    try:
+        tasks_db[task_id] = {
+            "status": "processing", # 전체 상태는 'processing'으로 유지
+            "request_details": request.model_dump(),
+            "progress": {
+                "네이버 크롤링": "pending",
+                "카카오 크롤링": "pending",
+                "점수 산정": "pending",
+                "결과 저장": "pending"
+            }
+        }
+        print(f"[{task_id}] 타겟 파이프라인 시작: search_query='{request.query}', address='{request.address}'")
+
+        # 1. Target Naver Crawling
+        tasks_db[task_id]["progress"]["타겟 네이버 크롤링"] = "running"
+        # 새로운 타겟 크롤러 컨트롤러 함수를 호출합니다.
+        naver_df = run_target_naver_crawling(
+            search_query=request.query,
+            address=request.address,
+            latitude=request.latitude,
+            longitude=request.longitude,
+            headless_mode=(not request.show_browser),
+            zoom_level=request.zoom_level,
+            existing_naver_ids=existing_ids
+
+        )
+        if naver_df.empty: raise ValueError("타겟 네이버 크롤링 결과가 없습니다.")
+        tasks_db[task_id]["progress"]["타겟 네이버 크롤링"] = "completed"
+        print(f"[{task_id}] 타겟 네이버 크롤링 완료.")
+
+        # 2. Kakao Crawling
+        tasks_db[task_id]["progress"]["카카오 크롤링"] = "running"
+        kakao_df = run_kakao_crawling(
+            input_df=naver_df,
+            max_threads=config.get('num_threads', 3),
+            headless=(not request.show_browser)
+        )
+        tasks_db[task_id]["progress"]["카카오 크롤링"] = "completed"
+        print(f"[{task_id}] 카카오 크롤링 완료.")
+
+        # 3. Scoring
+        tasks_db[task_id]["progress"]["점수 산정"] = "running"
+        final_list = run_scoring_pipeline(
+            input_data=kakao_df.to_dict('records'),
+            data_dir=config.get('data_dir', 'data')
+        )
+        if not final_list: raise ValueError("점수 산정 결과가 없습니다.")
+        tasks_db[task_id]["progress"]["점수 산정"] = "completed"
+        print(f"[{task_id}] 점수 산정 완료.")
+
+        final_df = pd.DataFrame(final_list)
+        
+        # --- 공통 파일명 및 경로 생성 ---
+        now = datetime.now()
+        timestamp = now.strftime('%Y%m%d_%H%M%S')
+        safe_query_name = re.sub(r'[\\/*?:"<>|]', "", request.query)
+        file_name = f"{safe_query_name}_{timestamp}_{task_id[:8]}_{len(final_df)}.json"
+        
+        tasks_db[task_id]["progress"]["결과 저장"] = "running" # 저장 시작
+
+        # -- 스토리지 모드에 따른 결과 저장 분기 -- # 
+        if request.storage_mode == "s3":
+            s3_config = config['s3_config']
+            s3_client = boto3.client('s3')
+            date_path = now.strftime('%Y-%m/%Y-%m-%d')
+            final_s3_key = f"{s3_config['output_results_prefix']}{date_path}/{file_name}"
+
+            json_buffer = final_df.to_json(orient='records', force_ascii=False, indent=4)
+            s3_client.put_object(Bucket=s3_config['bucket_name'], Key=final_s3_key, Body=json_buffer, ContentType='application/json')
+            
+            tasks_db[task_id].update({"status": "completed", "s3_key": final_s3_key})
+            print(f"[{task_id}] S3에 개별 결과 저장 완료: {final_s3_key}")
+
+        # local 모드일 경우
+        else:
+            local_config = config['local_config']
+            date_path = now.strftime(os.path.join('%Y-%m', '%Y-%m-%d'))
+            output_path = os.path.join(local_config['output_dir'], date_path)
+            os.makedirs(output_path, exist_ok=True)
+            
+            final_local_path = os.path.join(output_path, file_name)
+            final_df.to_json(final_local_path, orient='records', force_ascii=False, indent=4)
+            
+            tasks_db[task_id].update({"status": "completed", "result_path": final_local_path})
+            print(f"[{task_id}] 로컬에 개별 결과 저장 완료: {final_local_path}")
+
+    except Exception as e:
+        error_message = str(e)
+        tasks_db[task_id].update({"status": "failed", "error": error_message})
+        print(f"[{task_id}] 파이프라인 오류: {error_message}")
+        if output_dir:
+            error_log_path = os.path.join(output_dir, "error_log.txt")
+            with open(error_log_path, 'w', encoding='utf-8') as f:
+                f.write(f"Error: {error_message}\n\n")
+                f.write(traceback.format_exc())
+
+
 # --- 4. 서버 시작 시 실행될 이벤트 ---
 def clean_firefox_cache():
     """Firefox 관련 캐시 파일을 정리합니다."""
@@ -201,6 +317,7 @@ def on_startup():
     clean_firefox_cache()
 
 # --- 5. API 엔드포인트 구현 --- # 이거 어떻게 post 넘겨서 값 받을 지 다시 정하기
+# 일반 파이프라인 실행 함수 ------------------------------
 @app.post("/pipeline/run", response_model=TaskResponse, status_code=202)
 async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: BackgroundTasks):
     """파이프라인 실행을 요청하고 즉시 작업 ID를 반환합니다."""
@@ -214,7 +331,22 @@ async def start_pipeline_endpoint(request: PipelineRequest, background_tasks: Ba
 
     return {"task_id": task_id, "message": "파이프라인 작업이 접수되었습니다. '/pipeline/status/{task_id}'로 상태를 확인하세요."}
 
+# 타겟 파이프라인 실행 함수 ------------------------------
+@app.post("/pipeline/target-run", response_model=TaskResponse, status_code=202)
+async def start_target_pipeline_endpoint(request: TargetPipelineRequest, background_tasks: BackgroundTasks):
+    """(신규) 주소 정보를 활용한 단일 타겟 수집 파이프라인 실행을 요청합니다."""
+    task_id = str(uuid.uuid4())
+    tasks_db[task_id] = {"status": "pending"}
+    
+    # 타겟 크롤링은 보통 중복 ID 체크가 덜 중요하지만, 호환성을 위해 전달
+    existing_ids = load_ids_from_master_data(request.storage_mode, config)
+    
+    # 타겟 파이프라인 실행 함수를 백그라운드 작업으로 추가
+    background_tasks.add_task(execute_target_pipeline_task, task_id, request, existing_ids)
 
+    return {"task_id": task_id, "message": "타겟 파이프라인 작업이 접수되었습니다. '/pipeline/status/{task_id}'로 상태를 확인하세요."}
+
+# 파이프라인 상태 확인 함수 ------------------------------
 @app.get("/pipelines/status/{task_id}", response_model=StatusResponse)
 async def get_pipeline_status(task_id: str):
     """주어진 task_id에 대한 작업 상태와 결과 경로/URL을 반환합니다."""
@@ -241,7 +373,7 @@ async def get_pipeline_status(task_id: str):
 
     return response_data
 
-
+# config 확인 함수 ------------------------------
 @app.get("/config", response_model=dict)
 async def get_config():
     """서버에 로드된 전체 설정을 확인합니다."""
@@ -259,6 +391,7 @@ def consolidation_task_wrapper():
         CONSOLIDATION_IN_PROGRESS = False
         print("데이터 통합 작업 완료. 이제 다음 통합 요청을 받을 수 있습니다.")
 
+# 데이터 통합 수동 실행 API ------------------------------
 @app.post("/admin/consolidation", response_model=TaskResponse, status_code=202)
 async def trigger_consolidation_endpoint(background_tasks: BackgroundTasks):
     """데이터 통합 배치 작업을 수동으로 실행시킵니다. (관리자용)"""

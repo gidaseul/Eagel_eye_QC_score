@@ -1,4 +1,3 @@
-# 셀레니움 및 드라이버 모듈
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
@@ -8,7 +7,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.firefox.service import Service
-
 # from Age_balance_store_based_crawling import extract_demographic_data
 from difflib import SequenceMatcher
 from rapidfuzz import fuzz
@@ -28,6 +26,7 @@ import logging
 import random
 import subprocess
 import time
+import json
 
 # 각종 util 함수
 from .utils.get_instagram_link import get_instagram_link
@@ -45,7 +44,7 @@ USER_AGENTS = [
     ]
 
 
-class StoreCrawler:
+class TargetStoreCrawler:
     # 크롤링되는 features 리스트
     columns = ['naver_id','search_word','name','category', 'new_store', 'instagram_link', 'instagram_post', 'instagram_follower',
                'visitor_review_count', 'blog_review_count', 'review_category','theme_mood','theme_topic','theme_purpose', 'distance_from_subway', 'distance_from_subway_origin', 'on_tv',
@@ -59,7 +58,7 @@ class StoreCrawler:
     
         #logger 먼저 정의
         # logger 정의 (기존과 동일)
-        self.logger = logging.getLogger(f"StoreCrawler_Thread_{thread_id or 0}")
+        self.logger = logging.getLogger(f"TargetStoreCrawler_Thread_{thread_id or 0}")
         self.logger.setLevel(logging.INFO)
         if not self.logger.handlers:
             handler = logging.StreamHandler()
@@ -72,7 +71,7 @@ class StoreCrawler:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.output_base_dir = output_base_dir if output_base_dir else os.path.join(current_dir, 'result')
         os.makedirs(self.output_base_dir, exist_ok=True)  #디렉토리 생성 보장
-        self.data = pd.DataFrame(columns=StoreCrawler.columns)
+        self.data = pd.DataFrame(columns=TargetStoreCrawler.columns)
         self.user_agent_index = random.randint(0, len(USER_AGENTS) - 1)
         self.driver = self.init_driver()
         
@@ -91,11 +90,12 @@ class StoreCrawler:
         self.search_iframe = "searchIframe"
         self.entry_iframe = "entryIframe"
 
-    # 수정한 것(keyword 합친 것)
-    def run_crawl(self, search_query: str, latitude: float = None, longitude: float = None, zoom_level: Optional[int] = None):
-        self.search_word = search_query
-        self.logger.info(f"크롤링 작업 시작. 검색어: '{search_query}', 좌표: ({latitude}, {longitude})")
-
+    def run_crawl(self, search_query: str, address: str, latitude: float = None, longitude: float = None, zoom_level: Optional[int] = None) -> pd.DataFrame:
+        self.search_word = search_query # 비교용 원본 가게 이름
+        self.address = address         # 비교용 원본 주소 키워드        
+        self.logger.info(f"타겟 크롤링 작업 시작. 검색어: '{search_query}'")
+        self.init_dictionary()
+            
         try:
             final_zoom_level = zoom_level if zoom_level is not None else 15
             encoded_query = quote(search_query)
@@ -125,7 +125,7 @@ class StoreCrawler:
 
             elif "searchIframe" in iframe_ids:
                 self.logger.info("검색 결과: 목록 페이지. 전체 목록 크롤링을 시작합니다.")
-                self.crawl_all_results_in_list()
+                self.handle_candidate_list_address_based()
 
             else:
                 # fallback: searchIframe 직접 진입해서 '검색 결과 없음' 여부 확인
@@ -149,76 +149,171 @@ class StoreCrawler:
             self.logger.info(f"크롤링 작업 완료. 총 {len(self.data)}개 데이터 수집.")
             return self.data
 
-    # [신규] 검색 목록의 모든 가게를 크롤링하는 메소드
-    # naver_crawler_detail.py의 crawl_all_results_in_list 메소드 (최종 완성본)
-    def crawl_all_results_in_list(self):
-        page = 1
-        while True:
-            try:
-                self.move_to_search_iframe()
-                self.logger.info(f"===== {page} 페이지 크롤링 시작 =====")
-                self.scroll_to_end()
-                time.sleep(2)
-                store_elements_xpath = "//*[@id='_pcmap_list_scroll_container']/ul/li"
-                WebDriverWait(self.driver, 10).until(EC.presence_of_element_located((By.XPATH, store_elements_xpath)))
-                store_elements = self.driver.find_elements(By.XPATH, store_elements_xpath)
-                self.logger.info(f"{page} 페이지에서 {len(store_elements)}개의 가게를 찾았습니다.")
-            except Exception as e:
-                self.logger.warning(f"{page} 페이지 로딩 중 오류: {e}")
-                break
 
-            for i in range(len(store_elements)):
-                store_name_for_log = "[이름 확인 불가]"
+# TargetStoreCrawler 클래스 내부에 이 함수를 붙여넣거나 교체하세요.
+
+    def handle_candidate_list_address_based(self) -> bool:
+        """
+        searchIframe 목록에서 이름/주소 점수를 계산해 최고점 후보를 찾아 클릭하고,
+        entryIframe으로 전환되면 True를 반환합니다.
+        """
+        # --- 1. 선택자 및 상수 정의 (유지보수 용이성) ---
+        SEARCH_IFRAME_ID = "searchIframe"
+        LIST_CONTAINER_ID = "_pcmap_list_scroll_container"
+        CANDIDATE_LI_XPATH = f"//*[@id='{LIST_CONTAINER_ID}']/ul/li"
+        
+        # 후보(li) 요소 내부의 선택자
+        NAME_SELECTOR = "span.YwYLL"
+        ADDRESS_SELECTOR = "span.Pb4bU"
+        CLICK_TARGET_SELECTOR = "a.place_bluelink" # 클릭은 이 안정적인 링크에 수행
+        
+        # 페이지네이션 링크 선택자
+        PAGINATION_LINK_XPATH_TPL = "//div[contains(@class, 'XUPeJ')]//a[normalize-space(text())='{}']"
+        PAGINATION_ACTIVE_LINK_XPATH_TPL = "//div[contains(@class, 'XUPeJ')]//a[contains(@class, 'qxokY') and normalize-space(text())='{}']"
+
+        try:
+            def enter_search_frame():
+                self.move_to_default_content()
+                self.driver.switch_to.frame(SEARCH_IFRAME_ID)
+                self.wait.until(EC.presence_of_element_located((By.ID, LIST_CONTAINER_ID)))
+                time.sleep(1) # 프레임 전환 후 안정화 시간
+
+            enter_search_frame()
+
+            page = 1
+            best_candidate = {'score': -1, 'page': 1, 'name': None, 'address': None, 'index': -1}
+            address_tokens = self.address.split()
+
+            # --- 2. 모든 페이지를 순회하며 최고점 후보 탐색 ---
+            while True:
+                self.logger.info(f"--- [페이지 {page}] 후보 목록 평가 시작 ---")
+
+                # 페이지 내 모든 후보가 로드되도록 스크롤 다운
+                self.scroll_to_end() # 기존 스크롤 함수 재사용
+                
+                candidates = self.driver.find_elements(By.XPATH, CANDIDATE_LI_XPATH)
+                self.logger.info(f"페이지 {page}에서 {len(candidates)}개의 후보를 찾았습니다.")
+                if not candidates:
+                    self.logger.warning("후보 목록이 비어있습니다.")
+                    break # 더 이상 진행할 수 없으면 루프 종료
+
+                # 현재 페이지 최고점 후보 찾기
+                for idx, el in enumerate(candidates):
+                    try:
+                        name_txt = el.find_element(By.CSS_SELECTOR, NAME_SELECTOR).text.strip()
+                        addr_txt = el.find_element(By.CSS_SELECTOR, ADDRESS_SELECTOR).text.strip()
+                    except NoSuchElementException:
+                        continue
+
+                    # 점수 계산
+                    name_sim = SequenceMatcher(None, self.search_word, name_txt).ratio()
+                    addr_sim = sum(1 for token in address_tokens if token in addr_txt) / len(address_tokens) if address_tokens else 0
+                    score = (name_sim * 0.8) + (addr_sim * 0.2)
+
+                    if score > best_candidate['score']:
+                        best_candidate.update({
+                            'score': score, 'page': page, 'index': idx,
+                            'name': name_txt, 'address': addr_txt
+                        })
+                        self.logger.info(f"▶ [최고점 갱신] {name_txt} (점수: {score:.2f})")
+
+                # 다음 페이지로 이동
                 try:
-                    # [중요] StaleElementReferenceException을 원천적으로 방지하기 위해
-                    # 루프가 돌 때마다 목록과 현재 처리할 요소를 새로고침합니다.
-                    self.move_to_search_iframe()
-                    current_elements = self.driver.find_elements(By.XPATH, store_elements_xpath)
-                    if i >= len(current_elements): break
-                    
-                    target_li = current_elements[i]
-
-                    # --- [가장 안정적인 3단계 클릭 전략] ---
-
-                    # 1단계: 정확한 클릭 대상 특정
-                    # 'place_bluelink' 클래스를 가진 <a> 태그를 대상으로 지정합니다.
-                    click_target_selector = "a.place_bluelink"
-                    target_element = target_li.find_element(By.CSS_SELECTOR, click_target_selector)
-                    store_name_for_log = target_element.text.split("\n")[0]
-                    self.logger.info(f"--- {page} 페이지 {i+1}/{len(store_elements)} 번째 '{store_name_for_log}' 처리 시작 ---")
-                    
-                    # 2단계: 요소의 가시성 및 '클릭 가능' 상태 확보
-                    #   a. 요소를 화면에 보이도록 스크롤합니다.
-                    self.driver.execute_script("arguments[0].scrollIntoView(true);", target_element)
-                    #   b. 요소가 다른 것에 가려지지 않고 클릭 가능한 상태가 될 때까지 명시적으로 기다립니다.
-                    clickable_element = WebDriverWait(self.driver, 10).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, f"li:nth-child({i+1}) {click_target_selector}"))
+                    next_page_link = self.wait_short.until(
+                        EC.element_to_be_clickable((By.XPATH, PAGINATION_LINK_XPATH_TPL.format(page + 1)))
                     )
+                    first_candidate_on_page = self.driver.find_element(By.XPATH, CANDIDATE_LI_XPATH)
+                    next_page_link.click()
 
-                    # 3단계: 이벤트 실행 및 결과(iframe) 대기
-                    self.driver.execute_script("arguments[0].click();", clickable_element)
+                    # 페이지 전환(stale) 및 새 페이지 로딩(active) 확인
+                    self.wait.until(EC.staleness_of(first_candidate_on_page))
+                    self.wait.until(EC.presence_of_element_located((By.XPATH, PAGINATION_ACTIVE_LINK_XPATH_TPL.format(page + 1))))
                     
-                    # 클릭 후, 최상위 프레임으로 나와 entryIframe이 나타날 때까지 기다립니다.
-                    self.driver.switch_to.default_content()
-                    WebDriverWait(self.driver, 15).until(
-                        EC.presence_of_element_located((By.ID, self.entry_iframe))
+                    page += 1
+                    enter_search_frame()
+                except (NoSuchElementException, TimeoutException):
+                    self.logger.info("마지막 페이지에 도달하여 후보 탐색을 종료합니다.")
+                    break
+
+            # --- 3. 최종 후보 선택 및 처리 ---
+            if best_candidate['score'] < 0:
+                self.logger.warning("모든 페이지에서 유효한 후보를 찾지 못했습니다.")
+                return False
+
+            self.logger.info(f"✨ 최종 선택된 후보: {best_candidate['name']} ({best_candidate['address']}) / 점수: {best_candidate['score']:.2f}")
+
+            # --- 4. 최고점 후보가 있는 페이지로 복귀 및 클릭 ---
+            current_page_num = page
+            if current_page_num != best_candidate['page']:
+                self.logger.info(f"{best_candidate['page']} 페이지로 복귀합니다.")
+                try:
+                    target_page_link = self.wait.until(
+                        EC.element_to_be_clickable((By.XPATH, PAGINATION_LINK_XPATH_TPL.format(best_candidate['page'])))
                     )
-                    self.logger.info("entryIframe 로딩 확인 완료.")
-
-                    # 모든 조건이 만족되었으므로, 상세 정보 수집을 진행합니다.
-                    self.init_dictionary()
-                    self.get_store_details()
-
+                    first_candidate_on_page = self.driver.find_element(By.XPATH, CANDIDATE_LI_XPATH)
+                    target_page_link.click()
+                    
+                    self.wait.until(EC.staleness_of(first_candidate_on_page))
+                    self.wait.until(EC.presence_of_element_located((By.XPATH, PAGINATION_ACTIVE_LINK_XPATH_TPL.format(best_candidate['page']))))
+                    enter_search_frame()
                 except Exception as e:
-                    self.logger.error(f"'{store_name_for_log}' 가게 처리 중 오류 발생. 건너뜁니다. 에러: {e}", exc_info=True)
-                    # 문제가 발생해도 다음 가게로 계속 진행
-                    continue
+                    self.logger.error(f"페이지 {best_candidate['page']} 복귀에 실패했습니다: {e}", exc_info=True)
+                    return False
+
+            # --- 5. 최종 후보 클릭 ---
+            self.logger.info("최종 후보를 클릭합니다.")
+            self.scroll_to_end() # 페이지 복귀 후 목록 다시 스크롤
             
-            if not self.move_to_next_page():
-                break
-            page += 1
+            final_candidates = self.driver.find_elements(By.XPATH, CANDIDATE_LI_XPATH)
+            target_element = None
 
+            # 이름과 주소로 최종 후보를 다시 찾음 (가장 안정적인 방법)
+            for el in final_candidates:
+                try:
+                    name = el.find_element(By.CSS_SELECTOR, NAME_SELECTOR).text.strip()
+                    addr = el.find_element(By.CSS_SELECTOR, ADDRESS_SELECTOR).text.strip()
+                    if name == best_candidate['name'] and addr == best_candidate['address']:
+                        target_element = el
+                        self.logger.info("이름/주소 매칭으로 최종 후보 재확인 성공.")
+                        break
+                except NoSuchElementException:
+                    continue
 
+            if not target_element:
+                self.logger.warning("페이지 복귀 후 이름/주소로 후보를 재확인하는 데 실패했습니다. 인덱스로 재시도합니다.")
+                if 0 <= best_candidate['index'] < len(final_candidates):
+                    target_element = final_candidates[best_candidate['index']]
+                else:
+                    self.logger.error("인덱스로도 후보를 찾을 수 없습니다.")
+                    return False
+            
+            # 클릭 실행
+            try:
+                # [핵심] 클릭은 안정적인 a 태그에 수행
+                click_target = target_element.find_element(By.CSS_SELECTOR, CLICK_TARGET_SELECTOR)
+                
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", click_target)
+                time.sleep(0.5)
+                click_target_to_wait = self.wait.until(EC.element_to_be_clickable(click_target))
+                self.driver.execute_script("arguments[0].click();", click_target_to_wait)
+                
+                self.logger.info(f"'{best_candidate['name']}' 클릭 성공.")
+                
+                # entryIframe으로 전환될 때까지 대기하고 성공 반환
+                self.move_to_default_content()
+                self.wait.until(EC.presence_of_element_located((By.ID, self.entry_iframe)))
+                self.logger.info("✅ entryIframe 로딩 확인 완료. 상세 정보 수집 준비됨.")
+                self.get_store_details()
+                return True # 성공적으로 클릭하고 다음 단계로 넘어갈 준비가 됨
+
+            except Exception as e:
+                self.logger.error(f"최종 후보 클릭 또는 entryIframe 전환 실패: {e}", exc_info=True)
+                return False
+
+        except Exception as e:
+            self.logger.error(f"❌ 후보 목록 처리 중 예외가 발생했습니다: {e}", exc_info=True)
+            return False
+        
     def init_driver(self):
         ua = random.choice(USER_AGENTS)
         self.logger.info(f"[UA] 현재 user-agent: {ua}")
@@ -257,11 +352,11 @@ class StoreCrawler:
         except Exception as e:
             self.logger.error("❌ WebDriver 초기화 실패", exc_info=True)
             return None  # ❗ 실패 시 반드시 None 반환
+  
         
     # Iframe 내부에 있을 때, 가장 상위의 frame으로 이동
     def move_to_default_content(self):
         self.driver.switch_to.default_content()
-
     # 한 매장에 대한 크롤링을 마치고, 그 다음 매장을 크롤링 하기 위해 실행
     def init_dictionary(self):
         self.store_dict = {
@@ -325,7 +420,6 @@ class StoreCrawler:
             self.logger.error("❌ entryIframe으로 전환 실패 (Timeout)")
             raise
 
-
     # 탭 이동 후 직접 time sleep을 사용해 대시한다
     def move_to_tab(self, tab_name):
         tab_xpath = f"""//a[@role='tab' and .//span[text()='{tab_name}']]"""
@@ -335,8 +429,8 @@ class StoreCrawler:
         )        
         self.driver.execute_script("arguments[0].click()", tab_element)
         time.sleep(2)
-
-
+    
+    # 한 매장에 대한 정보 얻는 과정
     # [수정] naver_id 인자를 제거하고, 내부 로직을 '현재 로드된 페이지' 기준으로 변경 
     def get_store_details(self):
         try:
@@ -533,28 +627,24 @@ class StoreCrawler:
 
             # <지하철역 출구로부터 거리 추출 및 저장>
             try:
-                # 'nZapA' 클래스를 가지면서 '출구'라는 텍스트를 포함하는 div를 특정
+                # [수정] 'nZapA' 클래스를 가지면서 '출구'라는 텍스트를 포함하는 div를 특정
                 subway_div_xpath = "//div[contains(@class, 'nZapA') and contains(., '출구')]"
                 subway_div = self.wait.until(
                     EC.presence_of_element_located((By.XPATH, subway_div_xpath))
                 )
 
-                # div 요소의 전체 텍스트를 한 번에 가져옴
+                # [수정] div 요소의 전체 텍스트를 한 번에 가져옴
+                # 예시: "27대림역 1번 출구에서 230m 미터"
                 full_text = subway_div.text.strip().replace('\n', ' ')
 
-                # 전체 텍스트를 distance_from_subway_origin에 저장
+                # [요청사항 반영] 전체 텍스트를 distance_from_subway_origin에 저장
                 self.store_dict["distance_from_subway_origin"] = full_text
                 
-                # 전체 텍스트에서 숫자 그룹들을 추출
+                # [요청사항 반영] 전체 텍스트에서 숫자만 추출
                 numbers = re.findall(r'\d+', full_text)
-                
                 if numbers:
-                    # 마지막 숫자 그룹을 가져옴 (예: "230")
-                    last_number_str = numbers[-1]
-                    
-                    # [핵심 수정] 숫자 외의 모든 문자를 제거하여 순수한 숫자만 남김
-                    distance_value = int(re.sub(r'[^0-9]', '', last_number_str))
-                    
+                    # "27... 230m" 에서 마지막 숫자인 230을 추출
+                    distance_value = int(numbers[-1])
                     self.store_dict["distance_from_subway"] = distance_value
                     self.logger.info(f"✅ 지하철역 거리 정보 추출 성공: '{full_text}' -> {distance_value}m")
                 else:
@@ -570,6 +660,18 @@ class StoreCrawler:
                 self.logger.error(f"❌ 지하철역 거리 크롤링 중 예외 발생: {e}", exc_info=True)
                 self.store_dict["distance_from_subway"] = None
                 self.store_dict["distance_from_subway_origin"] = None
+                
+            # <방송 출연 여부> 확인 및 저장
+            try:
+                tv_xpath = """//strong[descendant::span[text()='TV방송정보']]"""
+                self.driver.find_element(By.XPATH, tv_xpath)
+                self.store_dict['on_tv'] = True
+            except NoSuchElementException:
+                self.store_dict['on_tv'] = False
+            except Exception as e:
+                self.logger.warning("❌ 방송 출연 여부 크롤링 실패")
+                self.logger.warning(e)
+                self.store_dict['on_tv'] = False
 
             # <주차 가능> 확인 및 저장
             try:
@@ -1170,7 +1272,7 @@ class StoreCrawler:
 
                 last_height = 0
                 last_item_count = 0
-                patience = 3
+                patience = 2
                 no_change_streak = 0
 
                 # --- 1단계: 빠른 스크롤 ---

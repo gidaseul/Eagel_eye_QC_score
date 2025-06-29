@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # naver_crawler_detail에서 StoreCrawler 클래스를 import
 # 사용자의 경로에 맞게 수정: from Crawling.naver_crawer_detail import StoreCrawler
 # 만약 naver_crawler.py와 naver_crawler_detail.py가 같은 폴더에 있다면 아래와 같이 수정합니다.
-from .naver_crawler_detail import StoreCrawler
+from Crawling.naver_crawler_detail import StoreCrawler
+from Crawling.naver_crawler_target import TargetStoreCrawler
 
 # --- 유틸리티 함수 ---
 
@@ -30,6 +31,7 @@ def ensure_list_or_dict(x):
             pass
     return x
 
+# 기존 대량 수집 (StoreCrawler)
 def run_naver_crawling(
     search_query: str,
     latitude: float = None,
@@ -65,6 +67,59 @@ def run_naver_crawling(
     # 2. 크롤링 실행
     final_df = crawler.run_crawl(
         search_query=search_query,
+        latitude=latitude,
+        longitude=longitude,
+        zoom_level=zoom_level
+    )
+    
+    # 3. 중복 제거 (naver_id 기준)
+    if not final_df.empty and 'naver_id' in final_df.columns:
+        final_df.drop_duplicates(subset=["naver_id"], inplace=True, keep='first')
+        print(f"총 {len(final_df)}개의 고유한 매장 정보 크롤링을 완료했습니다.")
+    else:
+        print("크롤링된 데이터가 없습니다.")
+
+    return final_df
+
+# 타겟 크롤링 (TargetStoreCrawler)
+def run_target_naver_crawling(
+    search_query: str,
+    address: str,
+    latitude: float = None,
+    longitude: float = None,
+    zoom_level: Optional[int] = None,
+    headless_mode: bool = True,
+    output_dir: str = 'results',
+    existing_naver_ids: set = None # 이 인자는 타겟 크롤링에선 사용되지 않을 수 있으나 API 호환성을 위해 유지
+
+) -> pd.DataFrame:
+    """
+    (타겟)검색 작업에 대한 네이버 지도 크롤링을 실행하고, 결과를 DataFrame으로 반환합니다.
+
+    Args:
+        search_query (str): 검색할 키워드.
+        address (str): 검색할 주소.
+        latitude (float, optional): 검색 기준점 위도. Defaults to None.
+        longitude (float, optional): 검색 기준점 경도. Defaults to None.
+        headless_mode (bool, optional): 브라우저 창 숨김 여부. Defaults to True.
+        output_dir (str, optional): 결과물이 저장될 디렉토리. Defaults to 'results'.
+
+    Returns:
+        pd.DataFrame: 크롤링 결과를 통합한 데이터프레임.
+    """
+    print(f"타겟 네이버 크롤링 시작... (가게명: '{search_query}', 주소: '{address}')")
+    
+    crawler = TargetStoreCrawler(headless=headless_mode, output_base_dir=output_dir,existing_naver_ids=existing_naver_ids)
+    
+    # WebDriver가 성공적으로 초기화되었는지 확인
+    if crawler.driver is None:
+        print("WebDriver 초기화에 실패하여 크롤링을 중단합니다.")
+        return pd.DataFrame()
+
+    # 2. 크롤링 실행
+    final_df = crawler.run_crawl(
+        search_query=search_query,
+        address=address,
         latitude=latitude,
         longitude=longitude,
         zoom_level=zoom_level
