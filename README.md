@@ -1,4 +1,6 @@
-[프로젝트 설명서 다운로드 (PDF)](./매의 눈 프로젝트 정리본.pdf)
+# 매의 눈 프로젝트
+[![매의 눈 프로젝트 발표자료 썸네일](./image.png)](./EagleEye.pdf)
+
 <br/>
 <br/>
 
@@ -59,7 +61,7 @@ uvicorn src/api_server:app --reload
 
 | 언어   | 설명                                                                 |
 | ------ | -------------------------------------------------------------------- |
-| Python | 데이터 수집, 처리, 분석, API 서버, UI 프론트엔드까지 Python으로 통일 |
+| Python | 데이터 수집, 처리, 분석, API 서버 등 Python으로 통일 |
 
 <br/>
 
@@ -70,8 +72,8 @@ uvicorn src/api_server:app --reload
 | FastAPI    | 비동기 API 서버. `BackgroundTasks`로 장기 작업을 처리하여 즉시 작업 접수 응답과 작업 ID를 반환하고, 실제 작업은 백그라운드에서 수행. HTTP 타임아웃 방지.                                                                  |
 | Uvicorn    | FastAPI용 ASGI 서버.                                                                                                                                                                                                       |
 | Docker     | 모든 환경을 이미지로 패키징하여 의존성 문제 해결 및 배포 용이성 확보.                                                                                                               |
-| Docker Compose | Nginx, Gunicorn/FastAPI 등 여러 컨테이너를 통합 관리.                                                                                                                               |
-| Gunicorn   | FastAPI용 WSGI 서버.                                                                                                                                                                                                       |
+| Docker Compose | 여러 컨테이너를 통합 관리.                                                                                                                               |
+| Gunicorn   | FastAPI용 서버.                                                                                                                                                                                                       |
 | Nginx      | 리버스 프록시로 사용되어 안정성과 성능 확보.                                                                                                                                        |
 | Google Generative AI (Gemini) | 메뉴 카테고리 판단, 의미론적 해석 기반 분석 및 점수화에 사용.                                                                                              |
 | Pandas     | 데이터 핸들링 표준 라이브러리.                                                                                                                                                       |
