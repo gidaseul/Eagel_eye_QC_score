@@ -1,5 +1,5 @@
 # 매의 눈 프로젝트
-[![매의 눈 프로젝트 발표자료 썸네일](./image.png)](./EagleEye.pdf)
+[![매의 눈 프로젝트 발표자료 썸네일](./image_1.png)](./EagleEye.pdf)
 
 <br/>
 <br/>
